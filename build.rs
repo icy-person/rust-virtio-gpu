@@ -1,7 +1,10 @@
 use std::{env, fs, path::PathBuf};
 
 fn replace_once(source: &mut String, old: &str, new: &str, label: &str) {
-    assert!(source.contains(old), "{label} changed; update build.rs patch");
+    assert!(
+        source.contains(old),
+        "{label} changed; update build.rs patch"
+    );
     *source = source.replacen(old, new, 1);
 }
 
@@ -278,12 +281,7 @@ fn main() {
         }
 
         self.mapped_offset = Some(offset);"#;
-    replace_once(
-        &mut state,
-        old_map,
-        new_map,
-        "VenusResource map validation",
-    );
+    replace_once(&mut state, old_map, new_map, "VenusResource map validation");
 
     fs::write(out_dir.join("venus_state.rs"), state)
         .expect("failed to write generated Venus state module");
