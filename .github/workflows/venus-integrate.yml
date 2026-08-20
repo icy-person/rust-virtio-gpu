@@ -1,0 +1,87 @@
+name: Venus Integration Patcher
+
+on:
+  push:
+    branches:
+      - feat/venus-state
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message != 'feat(venus): integrate dispatcher into device'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch device integration
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('src/virtio_gpu/device.rs')
+          text = path.read_text()
+
+          old = 'use crate::virtio_gpu::transport::virtqueue::split::DESC_F_WRITE;\n'
+          new = old + 'use crate::virtio_gpu::venus::{VenusDispatchError, VenusState};\n'
+          if old not in text:
+              raise SystemExit('device import anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '    VirtQueue(VirtQueueError),\n}'
+          new = '    VirtQueue(VirtQueueError),\n    Venus(VenusDispatchError),\n}'
+          if old not in text:
+              raise SystemExit('DeviceError anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = 'impl From<GuestMemoryError> for DeviceError {\n'
+          insert = '''impl From<VenusDispatchError> for DeviceError {\n    fn from(value: VenusDispatchError) -> Self {\n        Self::Venus(value)\n    }\n}\n\n'''
+          if old not in text:
+              raise SystemExit('DeviceError impl anchor not found')
+          text = text.replace(old, insert + old, 1)
+
+          old = '    resource: ResourceTable,\n\n    scanouts: [Scanout; MAX_SCANOUTS],\n'
+          new = '    resource: ResourceTable,\n    venus: VenusState,\n\n    scanouts: [Scanout; MAX_SCANOUTS],\n'
+          if old not in text:
+              raise SystemExit('VirtioGpuDevice field anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '            resource: ResourceTable::new(),\n            scanouts: [Scanout::default(); MAX_SCANOUTS],\n'
+          new = '            resource: ResourceTable::new(),\n            venus: VenusState::new(),\n            scanouts: [Scanout::default(); MAX_SCANOUTS],\n'
+          if old not in text:
+              raise SystemExit('new() resource anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '''            CMD_SET_SCANOUT => {\n                let req =\n                    ResourceSetScanout::decode(&request).ok_or(DeviceError::InvalidRequest)?;\n\n                self.set_scanout(req)?;\n\n                let response = RespOkNoData::new();\n                let bytes = response.encode_le();\n\n                self.write_response(&chain, &bytes)?;\n\n                bytes.len() as u32\n            }\n\n            _ => {\n                return Err(DeviceError::UnsupportedCommand);\n            }\n'''
+          new = '''            CMD_SET_SCANOUT => {\n                let req =\n                    ResourceSetScanout::decode(&request).ok_or(DeviceError::InvalidRequest)?;\n\n                self.set_scanout(req)?;\n\n                let response = RespOkNoData::new();\n                let bytes = response.encode_le();\n\n                self.write_response(&chain, &bytes)?;\n\n                bytes.len() as u32\n            }\n\n            CMD_CTX_CREATE\n            | CMD_CTX_DESTROY\n            | CMD_CTX_ATTACH_RESOURCE\n            | CMD_CTX_DETACH_RESOURCE\n            | CMD_RESOURCE_CREATE_BLOB\n            | CMD_RESOURCE_UNREF\n            | CMD_RESOURCE_MAP_BLOB\n            | CMD_RESOURCE_UNMAP_BLOB\n            | CMD_RESOURCE_ASSIGN_UUID\n            | CMD_SUBMIT_3D\n            | CMD_GET_CAPSET_INFO\n            | CMD_GET_CAPSET => {\n                let response = self.process_venus_command(&request)?;\n                self.write_response(&chain, &response)?;\n                response.len() as u32\n            }\n\n            _ => {\n                return Err(DeviceError::UnsupportedCommand);\n            }\n'''
+          if old not in text:
+              raise SystemExit('process_command match anchor not found')
+          text = text.replace(old, new, 1)
+
+          anchor = '    fn write_response(&mut self, chain: &DescriptorChain, data: &[u8]) -> Result<(), DeviceError> {\n'
+          method = '''    fn process_venus_command(&mut self, request: &[u8]) -> Result<Vec<u8>, DeviceError> {\n        let response = self.venus.dispatch(request)?;\n        Ok(response.bytes)\n    }\n\n'''
+          if anchor not in text:
+              raise SystemExit('write_response anchor not found')
+          text = text.replace(anchor, method + anchor, 1)
+
+          old = '        self.controlq = None;\n        self.cursorq = None;\n\n        self.config_generation'
+          new = '        self.controlq = None;\n        self.cursorq = None;\n        self.venus = VenusState::new();\n\n        self.config_generation'
+          if old not in text:
+              raise SystemExit('reset anchor not found')
+          text = text.replace(old, new, 1)
+
+          path.write_text(text)
+
+      - name: Remove patcher workflow
+        run: rm .github/workflows/venus-integrate.yml
+
+      - name: Commit device integration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/virtio_gpu/device.rs src/virtio_gpu/venus .github/workflows/venus-integrate.yml
+          git commit -m "feat(venus): integrate dispatcher into device"
+          git push origin HEAD:${GITHUB_REF_NAME}
