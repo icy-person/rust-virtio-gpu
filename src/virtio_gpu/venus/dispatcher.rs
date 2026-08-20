@@ -91,8 +91,7 @@ fn assign_uuid(resource_id: u32) -> [u8; 16] {
 
 impl VenusState {
     pub fn dispatch(&mut self, raw_request: &[u8]) -> Result<VenusResponse, VenusDispatchError> {
-        let header =
-            CtrlHeader::decode_le(raw_request).ok_or(VenusDispatchError::InvalidRequest)?;
+        let header = CtrlHeader::decode_le(raw_request).ok_or(VenusDispatchError::InvalidRequest)?;
 
         match header.typ {
             CMD_CTX_CREATE => {
@@ -227,24 +226,44 @@ impl VenusState {
                 })
             }
             CMD_SUBMIT_3D => {
-                let request =
-                    Submit3D::decode_le(raw_request).ok_or(VenusDispatchError::InvalidRequest)?;
-                let begin = Submit3D::SIZE;
-                let size = request.size as usize;
-                let end = begin
-                    .checked_add(size)
+                let request = Submit3D::decode_le(raw_request)
                     .ok_or(VenusDispatchError::InvalidRequest)?;
-                if raw_request.len() < end {
+                let in_fence_bytes = (request.num_in_fences as usize)
+                    .checked_mul(8)
+                    .ok_or(VenusDispatchError::InvalidRequest)?;
+                let fence_begin = Submit3D::SIZE;
+                let command_begin = fence_begin
+                    .checked_add(in_fence_bytes)
+                    .ok_or(VenusDispatchError::InvalidRequest)?;
+                let command_end = command_begin
+                    .checked_add(request.size as usize)
+                    .ok_or(VenusDispatchError::InvalidRequest)?;
+                if raw_request.len() < command_end {
                     return Err(VenusDispatchError::InvalidRequest);
                 }
+
+                let mut in_fences = Vec::with_capacity(request.num_in_fences as usize);
+                for chunk in raw_request[fence_begin..command_begin].chunks_exact(8) {
+                    in_fences.push(u64::from_le_bytes(
+                        chunk
+                            .try_into()
+                            .map_err(|_| VenusDispatchError::InvalidRequest)?,
+                    ));
+                }
+
                 let ring = if request.header.flags & FLAG_INFO_RING_IDX != 0 {
                     request.header.ring_idx
                 } else {
                     0
                 };
-                let point = self.submit(request.header.ctx_id, ring, &raw_request[begin..end])?;
+                let point = self.submit(
+                    request.header.ctx_id,
+                    ring,
+                    &in_fences,
+                    &raw_request[command_begin..command_end],
+                )?;
                 let mut response = nodata(header);
-                response.fence = Some(point.value);
+                response.fence = Some(point.id);
                 Ok(response)
             }
             CMD_GET_CAPSET_INFO => {
@@ -275,8 +294,8 @@ impl VenusState {
                 })
             }
             CMD_GET_CAPSET => {
-                let request =
-                    GetCapset::decode_le(raw_request).ok_or(VenusDispatchError::InvalidRequest)?;
+                let request = GetCapset::decode_le(raw_request)
+                    .ok_or(VenusDispatchError::InvalidRequest)?;
                 if request.capset_id != CAPSET_VENUS || request.capset_version == 0 {
                     return Err(VenusDispatchError::State(
                         VenusStateError::UnsupportedCapability,
@@ -333,6 +352,18 @@ mod tests {
             state.dispatch(&request),
             Err(VenusDispatchError::InvalidRequest)
         );
-        assert_eq!(state.fences.completed(0), 0);
+        assert_eq!(state.fences.completed(), 0);
+    }
+
+    #[test]
+    fn submit_uses_global_fence_id() {
+        let mut state = VenusState::new();
+        state.create_context(1, CAPSET_VENUS, b"ctx").unwrap();
+        let request = Submit3D::new(1, 4);
+        let mut bytes = request.encode_le().to_vec();
+        bytes.extend_from_slice(&[0; 4]);
+        let response = state.dispatch(&bytes).unwrap();
+        assert_eq!(response.fence, Some(1));
+        assert_eq!(state.fences.completed(), 0);
     }
 }
