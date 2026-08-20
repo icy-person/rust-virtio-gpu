@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::virtio_gpu::protocol::commands::{
-    BLOB_FLAG_USE_CROSS_DEVICE, BLOB_FLAG_USE_MAPPABLE, BLOB_FLAG_USE_SHAREABLE, BLOB_MEM_GUEST,
-    BLOB_MEM_HOST3D, BLOB_MEM_HOST3D_GUEST, CAPSET_VENUS,
+    BLOB_FLAG_USE_CROSS_DEVICE, BLOB_FLAG_USE_MAPPABLE, BLOB_FLAG_USE_SHAREABLE,
+    BLOB_MEM_GUEST, BLOB_MEM_HOST3D, BLOB_MEM_HOST3D_GUEST, CAPSET_VENUS,
 };
 
 pub const VENUS_MAX_VERSION: u32 = 1;
@@ -23,6 +23,7 @@ pub enum VenusStateError {
     InvalidCommandStream,
     UnsupportedCapability,
     InvalidRing,
+    UnsatisfiedFence,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,7 +80,7 @@ impl VenusResource {
 
         match memory {
             BlobMemory::Guest | BlobMemory::Host3dGuest if guest_backing_size < size => {
-                return Err(VenusStateError::InvalidBlobSize);
+                return Err(VenusStateError::InvalidBlobSize)
             }
             _ => {}
         }
@@ -156,14 +157,25 @@ impl VenusContext {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FencePoint {
+    pub id: u64,
     pub ring: u8,
-    pub value: u64,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FenceTracker {
-    next: BTreeMap<u8, u64>,
-    completed: BTreeMap<u8, u64>,
+    next_id: u64,
+    completed_id: u64,
+    last_by_ring: BTreeMap<u8, u64>,
+}
+
+impl Default for FenceTracker {
+    fn default() -> Self {
+        Self {
+            next_id: 0,
+            completed_id: 0,
+            last_by_ring: BTreeMap::new(),
+        }
+    }
 }
 
 impl FenceTracker {
@@ -171,24 +183,39 @@ impl FenceTracker {
         if ring >= 64 {
             return Err(VenusStateError::InvalidRing);
         }
-        let value = self.next.get(&ring).copied().unwrap_or(0).saturating_add(1);
-        self.next.insert(ring, value);
-        Ok(FencePoint { ring, value })
+        self.next_id = self.next_id.saturating_add(1).max(1);
+        self.last_by_ring.insert(ring, self.next_id);
+        Ok(FencePoint {
+            id: self.next_id,
+            ring,
+        })
     }
 
     pub fn signal(&mut self, point: FencePoint) -> Result<(), VenusStateError> {
-        if point.ring >= 64 {
+        if point.ring >= 64 || point.id == 0 {
             return Err(VenusStateError::InvalidRing);
         }
-        let current = self.completed.get(&point.ring).copied().unwrap_or(0);
-        if point.value > current {
-            self.completed.insert(point.ring, point.value);
+        if point.id > self.next_id {
+            return Err(VenusStateError::UnsatisfiedFence);
         }
+        self.completed_id = self.completed_id.max(point.id);
         Ok(())
     }
 
-    pub fn completed(&self, ring: u8) -> u64 {
-        self.completed.get(&ring).copied().unwrap_or(0)
+    pub fn completed(&self) -> u64 {
+        self.completed_id
+    }
+
+    pub fn is_signaled(&self, fence_id: u64) -> bool {
+        fence_id != 0 && fence_id <= self.completed_id
+    }
+
+    pub fn wait_for(&self, fences: &[u64]) -> Result<(), VenusStateError> {
+        if fences.iter().all(|&id| self.is_signaled(id)) {
+            Ok(())
+        } else {
+            Err(VenusStateError::UnsatisfiedFence)
+        }
     }
 }
 
@@ -208,14 +235,11 @@ impl Default for VenusState {
 }
 
 impl VenusState {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             contexts: BTreeMap::new(),
             resources: BTreeMap::new(),
-            fences: FenceTracker {
-                next: BTreeMap::new(),
-                completed: BTreeMap::new(),
-            },
+            fences: FenceTracker::default(),
             capset_version: VENUS_MAX_VERSION,
             capset_size: 0,
         }
@@ -324,6 +348,7 @@ impl VenusState {
         &mut self,
         context_id: u32,
         ring: u8,
+        in_fences: &[u64],
         command_stream: &[u8],
     ) -> Result<FencePoint, VenusStateError> {
         if !self.contexts.contains_key(&context_id) {
@@ -332,12 +357,13 @@ impl VenusState {
         if command_stream.len() > (u32::MAX as usize) || command_stream.len() % 4 != 0 {
             return Err(VenusStateError::InvalidCommandStream);
         }
+        self.fences.wait_for(in_fences)?;
 
         let point = self.fences.allocate(ring)?;
         self.contexts
             .get_mut(&context_id)
             .expect("context checked above")
-            .last_submitted_fence = point.value;
+            .last_submitted_fence = point.id;
         Ok(point)
     }
 }
@@ -360,10 +386,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(state.resources.len(), 1);
-        assert_eq!(
-            state.resources.get(&1).unwrap().map(0x1000).unwrap(),
-            0x1000
-        );
+        assert_eq!(state.resources.get(&1).unwrap().map(0x1000).unwrap(), 0x1000);
         assert_eq!(state.resources.get_mut(&1).unwrap().unmap(), Ok(()));
         assert_eq!(state.unref_resource(1), Ok(()));
     }
@@ -372,63 +395,44 @@ mod tests {
     fn context_attachment_is_symmetric() {
         let mut state = VenusState::new();
         state.create_context(1, CAPSET_VENUS, b"ctx").unwrap();
-        state
-            .create_blob(2, 9, 4096, BLOB_MEM_HOST3D, 0, 0)
-            .unwrap();
+        state.create_blob(2, 9, 4096, BLOB_MEM_HOST3D, 0, 0).unwrap();
         state.attach_resource(1, 2).unwrap();
-        assert!(
-            state
-                .contexts
-                .get(&1)
-                .unwrap()
-                .attached_resources
-                .contains(&2)
-        );
-        assert!(
-            state
-                .resources
-                .get(&2)
-                .unwrap()
-                .attached_contexts
-                .contains(&1)
-        );
+        assert!(state.contexts.get(&1).unwrap().attached_resources.contains(&2));
+        assert!(state.resources.get(&2).unwrap().attached_contexts.contains(&1));
         state.detach_resource(1, 2).unwrap();
-        assert!(
-            state
-                .contexts
-                .get(&1)
-                .unwrap()
-                .attached_resources
-                .is_empty()
-        );
-        assert!(
-            state
-                .resources
-                .get(&2)
-                .unwrap()
-                .attached_contexts
-                .is_empty()
-        );
+        assert!(state.contexts.get(&1).unwrap().attached_resources.is_empty());
+        assert!(state.resources.get(&2).unwrap().attached_contexts.is_empty());
     }
 
     #[test]
-    fn fences_are_monotonic_per_ring() {
+    fn fences_are_global_and_monotonic() {
         let mut tracker = FenceTracker::default();
         let a = tracker.allocate(0).unwrap();
-        let b = tracker.allocate(0).unwrap();
-        assert!(b.value > a.value);
+        let b = tracker.allocate(1).unwrap();
+        assert!(b.id > a.id);
         tracker.signal(b).unwrap();
-        tracker.signal(a).unwrap();
-        assert_eq!(tracker.completed(0), b.value);
+        assert!(tracker.is_signaled(a.id));
+        assert!(tracker.is_signaled(b.id));
+        assert_eq!(tracker.completed(), b.id);
+    }
+
+    #[test]
+    fn unsignaled_in_fence_blocks_submit() {
+        let mut state = VenusState::new();
+        state.create_context(7, CAPSET_VENUS, b"venus").unwrap();
+        assert_eq!(
+            state.submit(7, 0, &[999], &[0; 8]),
+            Err(VenusStateError::UnsatisfiedFence)
+        );
     }
 
     #[test]
     fn submit_requires_word_aligned_stream() {
         let mut state = VenusState::new();
         state.create_context(7, CAPSET_VENUS, b"venus").unwrap();
-        assert!(state.submit(7, 0, &[0; 8]).is_ok());
+        assert!(state.submit(7, 0, &[], &[0; 8]).is_ok());
         assert_eq!(
-            state.submit(7, 0, &[0; 6]),
+            state.submit(7, 0, &[], &[0; 6]),
             Err(VenusStateError::InvalidCommandStream)
         );
     }
