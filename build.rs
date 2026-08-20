@@ -99,9 +99,6 @@ fn main() {
             ))"#;
     replace_if_present(&mut generated, old_transfer, new_transfer);
 
-    // The display pipeline test uses an 800x600 resource. Match the transfer
-    // immediately after the test's unique marker instead of relying on the
-    // exact formatting of the surrounding test code.
     let full_anchor = "// انتقال از Guest Memory به Resource";
     let full_old_struct = r#"        device
             .transfer_to_host(ResourceTransferToHost2D {
@@ -148,15 +145,7 @@ fn main() {
                 0,
             ))
             .unwrap();"#;
-        if generated.contains(full_old_new_ctor) {
-            replace_after(
-                &mut generated,
-                full_anchor,
-                full_old_new_ctor,
-                full_new,
-                "full display transfer",
-            );
-        }
+        replace_if_present(&mut generated, full_old_new_ctor, full_new);
     }
 
     let full_scanout_old = r#"        device
@@ -281,7 +270,7 @@ fn main() {
         }
 
         self.mapped_offset = Some(offset);"#;
-    replace_once(&mut state, old_map, new_map, "VenusResource map validation");
+    replace_if_present(&mut state, old_map, new_map);
 
     fs::write(out_dir.join("venus_state.rs"), state)
         .expect("failed to write generated Venus state module");
