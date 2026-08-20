@@ -73,11 +73,7 @@ impl GuestMemory {
     ///
     /// The caller must keep this `GuestMemory` alive and must not expose the pointer
     /// outside the allocation validated by this method. The allocation is never resized.
-    pub fn as_mut_ptr(
-        &self,
-        addr: GuestAddress,
-        len: usize,
-    ) -> Result<*mut u8, GuestMemoryError> {
+    pub fn as_mut_ptr(&self, addr: GuestAddress, len: usize) -> Result<*mut u8, GuestMemoryError> {
         let offset = self.offset(addr, len)?;
         let memory = self.data.read().expect("guest memory poisoned");
         // The boxed slice is fixed-size for the lifetime of this GuestMemory.
