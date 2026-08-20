@@ -2,9 +2,9 @@ use rust_virtio_gpu::virtio_gpu::device::DeviceStatus;
 use rust_virtio_gpu::virtio_gpu::features::GpuFeatures;
 use rust_virtio_gpu::virtio_gpu::transport::pci::common::CommonConfig;
 use rust_virtio_gpu::virtio_gpu::transport::pci::{
-    PciTransportError, VirtioPciCap64, VirtioPciCapability, VirtioPciNotifyCapability,
-    VirtioPciTransport, VIRTIO_PCI_CAP_COMMON_CFG, VIRTIO_PCI_CAP_DEVICE_CFG,
-    VIRTIO_PCI_CAP_NOTIFY_CFG, VIRTIO_PCI_CAP_SHARED_MEMORY_CFG,
+    PciTransportError, VIRTIO_PCI_CAP_COMMON_CFG, VIRTIO_PCI_CAP_DEVICE_CFG,
+    VIRTIO_PCI_CAP_NOTIFY_CFG, VIRTIO_PCI_CAP_SHARED_MEMORY_CFG, VirtioPciCap64,
+    VirtioPciCapability, VirtioPciNotifyCapability, VirtioPciTransport,
 };
 
 #[test]
@@ -30,24 +30,28 @@ fn default_transport_advertises_shared_memory() {
 fn shared_memory_selection_exposes_length_and_base() {
     let mut transport = VirtioPciTransport::default();
     transport.initialize_default_capabilities().unwrap();
-    transport
-        .write_common(CommonConfig::SHM_SEL, 4, 1)
-        .unwrap();
+    transport.write_common(CommonConfig::SHM_SEL, 4, 1).unwrap();
 
     assert_eq!(
         transport.read_common(CommonConfig::SHM_LEN_LOW, 4).unwrap(),
         0x0400_0000
     );
     assert_eq!(
-        transport.read_common(CommonConfig::SHM_LEN_HIGH, 4).unwrap(),
+        transport
+            .read_common(CommonConfig::SHM_LEN_HIGH, 4)
+            .unwrap(),
         0
     );
     assert_eq!(
-        transport.read_common(CommonConfig::SHM_BASE_LOW, 4).unwrap(),
+        transport
+            .read_common(CommonConfig::SHM_BASE_LOW, 4)
+            .unwrap(),
         0x2000_0000
     );
     assert_eq!(
-        transport.read_common(CommonConfig::SHM_BASE_HIGH, 4).unwrap(),
+        transport
+            .read_common(CommonConfig::SHM_BASE_HIGH, 4)
+            .unwrap(),
         0
     );
 }
@@ -65,15 +69,21 @@ fn nonexistent_shared_memory_is_reported_as_all_ones() {
         u32::MAX as u64
     );
     assert_eq!(
-        transport.read_common(CommonConfig::SHM_LEN_HIGH, 4).unwrap(),
+        transport
+            .read_common(CommonConfig::SHM_LEN_HIGH, 4)
+            .unwrap(),
         u32::MAX as u64
     );
     assert_eq!(
-        transport.read_common(CommonConfig::SHM_BASE_LOW, 4).unwrap(),
+        transport
+            .read_common(CommonConfig::SHM_BASE_LOW, 4)
+            .unwrap(),
         u32::MAX as u64
     );
     assert_eq!(
-        transport.read_common(CommonConfig::SHM_BASE_HIGH, 4).unwrap(),
+        transport
+            .read_common(CommonConfig::SHM_BASE_HIGH, 4)
+            .unwrap(),
         u32::MAX as u64
     );
 }
@@ -148,7 +158,12 @@ fn feature_and_status_registers_round_trip() {
             DeviceStatus::ACKNOWLEDGE.bits() as u64,
         )
         .unwrap();
-    assert!(transport.device.status().contains(DeviceStatus::ACKNOWLEDGE));
+    assert!(
+        transport
+            .device
+            .status()
+            .contains(DeviceStatus::ACKNOWLEDGE)
+    );
 }
 
 #[test]
@@ -173,7 +188,9 @@ fn queue_reset_register_clears_selected_queue() {
         0
     );
     assert_eq!(
-        transport.read_common(CommonConfig::QUEUE_ENABLE, 2).unwrap(),
+        transport
+            .read_common(CommonConfig::QUEUE_ENABLE, 2)
+            .unwrap(),
         0
     );
 }
