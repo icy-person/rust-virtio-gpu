@@ -27,7 +27,7 @@ impl Default for WaydroidVenusConfig {
     fn default() -> Self {
         let root = PathBuf::from(DEFAULT_WAYDROID_ROOT);
         Self {
-            server: PathBuf::from("virgl_test_server"),
+            server: discover_virgl_test_server(),
             socket_host: PathBuf::from(DEFAULT_VTEST_SOCKET),
             socket_guest: PathBuf::from(DEFAULT_GUEST_SOCKET),
             render_node: None,
@@ -155,6 +155,16 @@ impl WaydroidVenusConfig {
     }
 
     pub fn spawn_server(&self) -> io::Result<Child> {
+        if !self.server.exists() && self.server.file_name().is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!(
+                    "virgl_test_server not found at '{}'. Build it with: ./tools/build-virglrenderer-venus.sh",
+                    self.server.display()
+                ),
+            ));
+        }
+
         if self.socket_host.exists() {
             let _ = fs::remove_file(&self.socket_host);
         }
@@ -173,7 +183,15 @@ impl WaydroidVenusConfig {
         if let Some(host_icd) = &self.host_vulkan_icd {
             cmd.env("VK_DRIVER_FILES", host_icd);
         }
-        let child = cmd.spawn()?;
+        let child = cmd.spawn().map_err(|error| {
+            io::Error::new(
+                error.kind(),
+                format!(
+                    "failed to start virgl_test_server '{}': {error}. Install/build the Venus vtest server first.",
+                    self.server.display()
+                ),
+            )
+        })?;
         wait_for_path(&self.socket_host, Duration::from_secs(5))?;
         set_socket_mode(&self.socket_host, 0o666)?;
         Ok(child)
@@ -185,6 +203,37 @@ impl WaydroidVenusConfig {
         self.patch_init_environ()?;
         Ok(())
     }
+}
+
+fn discover_virgl_test_server() -> PathBuf {
+    if let Ok(path) = std::env::var("VIRGL_TEST_SERVER") {
+        return PathBuf::from(path);
+    }
+
+    let candidates = [
+        PathBuf::from("./virgl_test_server"),
+        PathBuf::from("./third_party/virglrenderer/out/vtest/virgl_test_server"),
+        PathBuf::from("./virglrenderer/out/vtest/virgl_test_server"),
+        PathBuf::from("/usr/bin/virgl_test_server"),
+        PathBuf::from("/usr/local/bin/virgl_test_server"),
+    ];
+
+    for candidate in candidates {
+        if candidate.is_file() {
+            return candidate;
+        }
+    }
+
+    if let Ok(path_var) = std::env::var("PATH") {
+        for dir in std::env::split_paths(&path_var) {
+            let candidate = dir.join("virgl_test_server");
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+    }
+
+    PathBuf::from("virgl_test_server")
 }
 
 fn ensure_line(path: &Path, line: &str) -> io::Result<bool> {
