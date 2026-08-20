@@ -60,6 +60,7 @@ pub struct VirglVenusBackend {
     backing_entries: Mutex<HashMap<u32, Vec<MemEntry>>>,
     map_info: Mutex<HashMap<u32, u32>>,
     fence_map: Mutex<HashMap<u32, u64>>,
+    internal_to_local: Mutex<HashMap<(u32, u64), u32>>,
     next_fence_id: Mutex<u32>,
 }
 
@@ -83,6 +84,7 @@ impl VirglVenusBackend {
             backing_entries: Mutex::new(HashMap::new()),
             map_info: Mutex::new(HashMap::new()),
             fence_map: Mutex::new(HashMap::new()),
+            internal_to_local: Mutex::new(HashMap::new()),
             next_fence_id: Mutex::new(1),
         })
     }
@@ -126,7 +128,8 @@ impl VirglVenusBackend {
             .map(|entry| {
                 let ptr = memory.as_mut_ptr(
                     GuestAddress::new(entry.addr),
-                    usize::try_from(entry.length).map_err(|_| GuestMemoryError::AddressOverflow)?,
+                    usize::try_from(entry.length)
+                        .map_err(|_| GuestMemoryError::AddressOverflow)?,
                 )?;
                 Ok(Iovec {
                     base: ptr.cast(),
@@ -151,21 +154,47 @@ impl VirglVenusBackend {
             .insert(resource_id, entries.to_vec());
     }
 
-    fn allocate_local_fence(&self, guest_id: u64) -> Result<u32, virglrenderer::VirglError> {
+    fn allocate_local_fence(
+        &self,
+        ctx_id: u32,
+        internal_id: u64,
+    ) -> Result<u32, virglrenderer::VirglError> {
         let mut next = self
             .next_fence_id
             .lock()
             .expect("virgl fence allocator poisoned");
-        let mut map = self.fence_map.lock().expect("virgl fence map poisoned");
+        let mut local_to_internal = self
+            .fence_map
+            .lock()
+            .expect("virgl fence map poisoned");
         for _ in 0..u32::MAX {
             let candidate = *next;
             *next = next.wrapping_add(1).max(1);
-            if candidate != 0 && !map.contains_key(&candidate) {
-                map.insert(candidate, guest_id);
+            if candidate != 0 && !local_to_internal.contains_key(&candidate) {
+                local_to_internal.insert(candidate, internal_id);
+                self.internal_to_local
+                    .lock()
+                    .expect("virgl internal fence map poisoned")
+                    .insert((ctx_id, internal_id), candidate);
                 return Ok(candidate);
             }
         }
         Err(virglrenderer::VirglError::FenceError)
+    }
+
+    fn translate_input_fences(
+        &self,
+        ctx_id: u32,
+        in_fences: &[u64],
+    ) -> Vec<u32> {
+        let map = self
+            .internal_to_local
+            .lock()
+            .expect("virgl internal fence map poisoned");
+        in_fences
+            .iter()
+            .filter_map(|id| map.get(&(ctx_id, *id)).copied())
+            .collect()
     }
 
     pub fn create_3d(
@@ -362,14 +391,20 @@ impl VirglVenusBackend {
         commands: &mut [u8],
         in_fences: &[u64],
     ) -> Result<(), virglrenderer::VirglError> {
-        self.renderer.submit_cmd(ctx_id, commands, in_fences)?;
+        let local_in_fences = self.translate_input_fences(ctx_id, in_fences);
+        self.renderer
+            .submit_cmd(ctx_id, commands, &local_in_fences)?;
         if flags & FLAG_FENCE != 0 {
-            let local_fence = self.allocate_local_fence(fence_id)?;
+            let local_fence = self.allocate_local_fence(ctx_id, fence_id)?;
             if let Err(err) = self.renderer.create_fence(local_fence, ctx_id) {
                 self.fence_map
                     .lock()
                     .expect("virgl fence map poisoned")
                     .remove(&local_fence);
+                self.internal_to_local
+                    .lock()
+                    .expect("virgl internal fence map poisoned")
+                    .remove(&(ctx_id, fence_id));
                 return Err(err);
             }
         }
@@ -380,12 +415,17 @@ impl VirglVenusBackend {
         self.renderer.event_poll();
         let completed = self.fence_sink.drain();
         let mut map = self.fence_map.lock().expect("virgl fence map poisoned");
+        let mut reverse = self
+            .internal_to_local
+            .lock()
+            .expect("virgl internal fence map poisoned");
         completed
             .into_iter()
             .map(|mut fence| {
                 let local = fence.fence_id as u32;
-                if let Some(guest) = map.remove(&local) {
-                    fence.fence_id = guest;
+                if let Some(internal) = map.remove(&local) {
+                    fence.fence_id = internal;
+                    reverse.remove(&(fence.ctx_id, internal));
                 }
                 fence
             })
