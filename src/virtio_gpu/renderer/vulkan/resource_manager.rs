@@ -11,6 +11,7 @@ pub struct GpuTexture {
 }
 
 pub struct ResourceManager {
+    #[allow(dead_code)]
     textures: HashMap<ResourceId, GpuTexture>,
 }
 
