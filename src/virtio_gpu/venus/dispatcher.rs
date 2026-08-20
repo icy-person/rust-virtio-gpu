@@ -91,7 +91,8 @@ fn assign_uuid(resource_id: u32) -> [u8; 16] {
 
 impl VenusState {
     pub fn dispatch(&mut self, raw_request: &[u8]) -> Result<VenusResponse, VenusDispatchError> {
-        let header = CtrlHeader::decode_le(raw_request).ok_or(VenusDispatchError::InvalidRequest)?;
+        let header =
+            CtrlHeader::decode_le(raw_request).ok_or(VenusDispatchError::InvalidRequest)?;
 
         match header.typ {
             CMD_CTX_CREATE => {
@@ -226,8 +227,8 @@ impl VenusState {
                 })
             }
             CMD_SUBMIT_3D => {
-                let request = Submit3D::decode_le(raw_request)
-                    .ok_or(VenusDispatchError::InvalidRequest)?;
+                let request =
+                    Submit3D::decode_le(raw_request).ok_or(VenusDispatchError::InvalidRequest)?;
                 let in_fence_bytes = (request.num_in_fences as usize)
                     .checked_mul(8)
                     .ok_or(VenusDispatchError::InvalidRequest)?;
@@ -294,8 +295,8 @@ impl VenusState {
                 })
             }
             CMD_GET_CAPSET => {
-                let request = GetCapset::decode_le(raw_request)
-                    .ok_or(VenusDispatchError::InvalidRequest)?;
+                let request =
+                    GetCapset::decode_le(raw_request).ok_or(VenusDispatchError::InvalidRequest)?;
                 if request.capset_id != CAPSET_VENUS || request.capset_version == 0 {
                     return Err(VenusDispatchError::State(
                         VenusStateError::UnsupportedCapability,
