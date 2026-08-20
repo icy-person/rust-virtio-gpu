@@ -97,8 +97,7 @@ fn main() {
     }
     generated = generated.replacen(old_memory_field, new_memory_field, 1);
 
-    let old_venus_init =
-        "venus: crate::virtio_gpu::venus::VenusRuntime::new().ok(),";
+    let old_venus_init = "venus: crate::virtio_gpu::venus::VenusRuntime::new().ok(),";
     let new_venus_init = "venus: None,";
     if !generated.contains(old_venus_init) {
         panic!("Venus runtime constructor changed; update build.rs patch");
@@ -112,8 +111,7 @@ fn main() {
     }
     generated = generated.replacen(old_ctor_end, new_ctor_end, 1);
 
-    fs::write(out_dir.join("device.rs"), generated)
-        .expect("failed to write generated device.rs");
+    fs::write(out_dir.join("device.rs"), generated).expect("failed to write generated device.rs");
 
     let state_source = fs::read_to_string("src/virtio_gpu/venus/state.rs")
         .expect("failed to read src/virtio_gpu/venus/state.rs");
