@@ -45,13 +45,6 @@ fn main() {
     }
     generated = generated.replacen(old_dispatch, new_dispatch, 1);
 
-    let old_dispatch_call = ".dispatch(&request)";
-    let new_dispatch_call = ".dispatch(&request, &self.memory)";
-    if !generated.contains(old_dispatch_call) {
-        panic!("Venus dispatch call changed; update build.rs patch");
-    }
-    generated = generated.replacen(old_dispatch_call, new_dispatch_call, 1);
-
     let old_transfer = r#"            .transfer_to_host(ResourceTransferToHost2D {
                 resource_id: 1,
                 offset: 0,
@@ -79,8 +72,6 @@ fn main() {
     generated = generated.replace("let _ = (queue);", "let _ = queue;");
 
     // The core device must be constructible on headless CI and server hosts.
-    // Keep Vulkan as an explicit renderer choice instead of making construction
-    // depend on a working host Vulkan driver.
     generated = generated.replace(
         "use crate::virtio_gpu::renderer::{Display, VulkanRenderer};\nuse crate::virtio_gpu::renderer::{Renderer, SoftwareRenderer};",
         "use crate::virtio_gpu::renderer::{Display, Renderer, SoftwareRenderer};",
@@ -92,7 +83,37 @@ fn main() {
     }
     generated = generated.replacen(old_renderer, new_renderer, 1);
 
-    fs::write(out_dir.join("device.rs"), generated).expect("failed to write generated device.rs");
+    let old_ctor_prefix = "pub fn new() -> Self {\n        Self {";
+    let new_ctor_prefix = "pub fn new() -> Self {\n        let memory = GuestMemory::new(GuestAddress::new(0), 16 * 1024 * 1024);\n        let mut device = Self {";
+    if !generated.contains(old_ctor_prefix) {
+        panic!("VirtioGpuDevice constructor prefix changed; update build.rs patch");
+    }
+    generated = generated.replacen(old_ctor_prefix, new_ctor_prefix, 1);
+
+    let old_memory_field = "memory: GuestMemory::new(GuestAddress::new(0), 16 * 1024 * 1024),";
+    let new_memory_field = "memory: memory.clone(),";
+    if !generated.contains(old_memory_field) {
+        panic!("VirtioGpuDevice memory field changed; update build.rs patch");
+    }
+    generated = generated.replacen(old_memory_field, new_memory_field, 1);
+
+    let old_venus_init =
+        "venus: crate::virtio_gpu::venus::VenusRuntime::new().ok(),";
+    let new_venus_init = "venus: None,";
+    if !generated.contains(old_venus_init) {
+        panic!("Venus runtime constructor changed; update build.rs patch");
+    }
+    generated = generated.replacen(old_venus_init, new_venus_init, 1);
+
+    let old_ctor_end = "        }\n    }\n\n    pub fn process_queue";
+    let new_ctor_end = "        };\n\n        #[cfg(feature = \"virglrenderer-backend\")]\n        {\n            device.venus =\n                crate::virtio_gpu::venus::VenusRuntime::new(memory.clone()).ok();\n        }\n\n        device\n    }\n\n    pub fn process_queue";
+    if !generated.contains(old_ctor_end) {
+        panic!("VirtioGpuDevice constructor end changed; update build.rs patch");
+    }
+    generated = generated.replacen(old_ctor_end, new_ctor_end, 1);
+
+    fs::write(out_dir.join("device.rs"), generated)
+        .expect("failed to write generated device.rs");
 
     let state_source = fs::read_to_string("src/virtio_gpu/venus/state.rs")
         .expect("failed to read src/virtio_gpu/venus/state.rs");
