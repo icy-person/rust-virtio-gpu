@@ -65,11 +65,8 @@ impl VirglVenusBackend {
             .use_async_fence_cb(true)
             .use_thread_sync(true);
 
-        let renderer = VirglRenderer::init(
-            flags,
-            Box::new(FenceSinkProxy(fence_sink.clone())),
-            None,
-        )?;
+        let renderer =
+            VirglRenderer::init(flags, Box::new(FenceSinkProxy(fence_sink.clone())), None)?;
 
         Ok(Self {
             renderer: Arc::new(renderer),
