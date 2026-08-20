@@ -167,9 +167,8 @@ fn main() {
         "CMD_SET_SCANOUT_BLOB",
     ] {
         let bare = format!("            {command} => {{");
-        let qualified = format!(
-            "            crate::virtio_gpu::protocol::commands::{command} => {{"
-        );
+        let qualified =
+            format!("            crate::virtio_gpu::protocol::commands::{command} => {{");
         generated = generated.replace(&bare, &qualified);
     }
 
