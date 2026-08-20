@@ -1,10 +1,5 @@
-//! Minimal conventional PCI configuration-space model used by the VirtIO PCI
-//! transport implementation. It keeps the header, BARs and VirtIO capability
-//! list in a serializable 4 KiB configuration-space image.
-
 use crate::virtio_gpu::transport::pci::{
-    PciBar, VIRTIO_PCI_CAP_PCI_CFG, VirtioPciCap64, VirtioPciCapability,
-    VirtioPciNotifyCapability,
+    PciBar, VIRTIO_PCI_CAP_PCI_CFG, VirtioPciCap64, VirtioPciCapability, VirtioPciNotifyCapability,
 };
 
 /// `VIRTIO_PCI_CAP_PCI_CFG` capability and its four-byte access window.
@@ -86,16 +81,19 @@ impl VirtioPciCfgCapability {
     }
 }
 
+/// Minimal conventional PCI configuration-space model used by the VirtIO PCI
+/// transport implementation. It keeps the header, BARs and VirtIO capability
+/// list in a serializable 4 KiB configuration-space image.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PciConfigSpace {
-    pub const SIZE: usize = 4096;
-    pub const CAPABILITY_POINTER: usize = 0x34;
-    pub const FIRST_CAPABILITY: u8 = 0x50;
-
     bytes: [u8; Self::SIZE],
 }
 
 impl PciConfigSpace {
+    pub const SIZE: usize = 4096;
+    pub const CAPABILITY_POINTER: usize = 0x34;
+    pub const FIRST_CAPABILITY: u8 = 0x50;
+
     pub fn new(vendor_id: u16, device_id: u16) -> Self {
         let mut bytes = [0u8; Self::SIZE];
         bytes[0..2].copy_from_slice(&vendor_id.to_le_bytes());
@@ -218,5 +216,72 @@ impl PciConfigSpace {
 
     pub fn validate_bar(&self, bar: PciBar) -> bool {
         self.bar(bar.index).is_some_and(|base| base == bar.base)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::virtio_gpu::transport::pci::{
+        PCI_DEVICE_ID_GPU, PCI_VENDOR_ID_VIRTIO, PciBar, VIRTIO_PCI_CAP_COMMON_CFG,
+    };
+
+    #[test]
+    fn pci_cfg_capability_round_trip_and_alignment_validation() {
+        let mut cap = VirtioPciCfgCapability::new(0, 0x100, 4);
+        assert_eq!(cap.access_length(), Some(4));
+        assert!(cap.set_access(2, 4, 0x200));
+        assert_eq!(cap.cap.bar, 2);
+        assert!(!cap.set_access(2, 2, 3));
+        assert!(cap.set_data(&[1, 2, 3, 4]));
+        assert_eq!(
+            VirtioPciCfgCapability::decode_le(&cap.encode_le()),
+            Some(cap)
+        );
+    }
+
+    #[test]
+    fn pci_header_contains_virtio_gpu_identity() {
+        let config = PciConfigSpace::new(PCI_VENDOR_ID_VIRTIO, PCI_DEVICE_ID_GPU);
+        assert_eq!(config.read(0, 2), Some(PCI_VENDOR_ID_VIRTIO as u64));
+        assert_eq!(config.read(2, 2), Some(PCI_DEVICE_ID_GPU as u64));
+        assert_eq!(
+            config.capability_pointer(),
+            PciConfigSpace::FIRST_CAPABILITY
+        );
+    }
+
+    #[test]
+    fn capability_chain_is_linked() {
+        let mut config = PciConfigSpace::new(PCI_VENDOR_ID_VIRTIO, PCI_DEVICE_ID_GPU);
+        let common = VirtioPciCapability::new(VIRTIO_PCI_CAP_COMMON_CFG, 0, 0, 0x100);
+        let shared = VirtioPciCap64::new(2, 1, 0, 0x1000);
+        let pci_cfg = VirtioPciCfgCapability::new(0, 0x100, 4);
+        config
+            .install_capabilities_with_pci_cfg(&[common], &[], &[shared], Some(pci_cfg))
+            .unwrap();
+
+        let first = usize::from(config.capability_pointer());
+        assert_eq!(
+            config.read(first + 3, 1),
+            Some(VIRTIO_PCI_CAP_COMMON_CFG as u64)
+        );
+        let second = config.read(first + 1, 1).unwrap() as usize;
+        let third = config.read(second + 1, 1).unwrap() as usize;
+        assert_ne!(second, 0);
+        assert_ne!(third, 0);
+        assert_eq!(
+            config.read(third + 3, 1),
+            Some(VIRTIO_PCI_CAP_PCI_CFG as u64)
+        );
+        assert_eq!(config.read(third + 1, 1), Some(0));
+    }
+
+    #[test]
+    fn bar_validation_uses_absolute_address() {
+        let mut config = PciConfigSpace::new(PCI_VENDOR_ID_VIRTIO, PCI_DEVICE_ID_GPU);
+        let bar = PciBar::new(2, 0x2000_0000, 0x1000);
+        assert!(config.set_bar_memory(2, bar.base));
+        assert!(config.validate_bar(bar));
     }
 }
