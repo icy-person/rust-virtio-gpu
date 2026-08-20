@@ -71,20 +71,17 @@ impl VenusResource {
         if size == 0 {
             return Err(VenusStateError::InvalidBlobSize);
         }
-
         let known_flags =
             BLOB_FLAG_USE_MAPPABLE | BLOB_FLAG_USE_SHAREABLE | BLOB_FLAG_USE_CROSS_DEVICE;
         if flags & !known_flags != 0 {
             return Err(VenusStateError::InvalidBlobFlags);
         }
-
         match memory {
             BlobMemory::Guest | BlobMemory::Host3dGuest if guest_backing_size < size => {
                 return Err(VenusStateError::InvalidBlobSize);
             }
             _ => {}
         }
-
         Ok(Self {
             id,
             blob_id,
@@ -107,10 +104,9 @@ impl VenusResource {
         if self.mapped_offset.is_some() {
             return Err(VenusStateError::AlreadyMapped);
         }
-        if offset % 4096 != 0 || offset.checked_add(self.size).is_none() {
+        if offset >= self.size {
             return Err(VenusStateError::InvalidMapOffset);
         }
-
         self.mapped_offset = Some(offset);
         Ok(offset)
     }
