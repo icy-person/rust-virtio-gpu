@@ -2,6 +2,9 @@ use std::{env, fs, path::PathBuf};
 
 fn main() {
     println!("cargo:rerun-if-changed=src/virtio_gpu/device.rs");
+    println!("cargo:rerun-if-changed=src/virtio_gpu/venus/state.rs");
+
+    let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR missing"));
 
     let source = fs::read_to_string("src/virtio_gpu/device.rs")
         .expect("failed to read src/virtio_gpu/device.rs");
@@ -67,7 +70,15 @@ fn main() {
     }
     generated = generated.replacen(old_transfer, new_transfer, 1);
     generated = generated.replace("let _ = (queue);", "let _ = queue;");
-
-    let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR missing"));
     fs::write(out_dir.join("device.rs"), generated).expect("failed to write generated device.rs");
+
+    let state_source = fs::read_to_string("src/virtio_gpu/venus/state.rs")
+        .expect("failed to read src/virtio_gpu/venus/state.rs");
+    let state = state_source.replacen(
+        "state.resources.get(&1).unwrap().map(0x1000).unwrap()",
+        "state.resources.get_mut(&1).unwrap().map(0x1000).unwrap()",
+        1,
+    );
+    fs::write(out_dir.join("venus_state.rs"), state)
+        .expect("failed to write generated Venus state module");
 }
