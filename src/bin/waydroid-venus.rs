@@ -25,12 +25,8 @@ fn main() -> io::Result<()> {
             "--host-icd" => {
                 config.host_vulkan_icd = Some(PathBuf::from(next_value(&mut args, "--host-icd")?))
             }
-            "--icd" => {
-                config.vulkan_icd = Some(PathBuf::from(next_value(&mut args, "--icd")?))
-            }
-            "--config" => {
-                config.config_session = PathBuf::from(next_value(&mut args, "--config")?)
-            }
+            "--icd" => config.vulkan_icd = Some(PathBuf::from(next_value(&mut args, "--icd")?)),
+            "--config" => config.config_session = PathBuf::from(next_value(&mut args, "--config")?),
             "--init-env" => {
                 config.init_environ_rc = Some(PathBuf::from(next_value(&mut args, "--init-env")?))
             }
@@ -60,10 +56,15 @@ fn main() -> io::Result<()> {
 
     if start {
         let mut child = config.spawn_server()?;
-        println!("virgl_test_server ready at {}", config.socket_host.display());
+        println!(
+            "virgl_test_server ready at {}",
+            config.socket_host.display()
+        );
         let status = child.wait()?;
         if !status.success() {
-            return Err(io::Error::other(format!("virgl_test_server exited with {status}")));
+            return Err(io::Error::other(format!(
+                "virgl_test_server exited with {status}"
+            )));
         }
     }
 

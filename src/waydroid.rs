@@ -176,7 +176,10 @@ fn ensure_line(path: &Path, line: &str) -> io::Result<bool> {
     } else {
         String::new()
     };
-    if content.lines().any(|existing| existing.trim() == line.trim()) {
+    if content
+        .lines()
+        .any(|existing| existing.trim() == line.trim())
+    {
         return Ok(false);
     }
     if !content.ends_with('\n') && !content.is_empty() {
@@ -251,8 +254,14 @@ mod tests {
         let config = WaydroidVenusConfig::default();
         let env = config.guest_env_lines();
         assert!(env.iter().any(|line| line == "export VN_DEBUG vtest"));
-        assert!(env.iter().any(|line| line.starts_with("export VTEST_SOCKET_NAME ")));
-        assert!(env.iter().any(|line| line.starts_with("export VK_DRIVER_FILES ")));
+        assert!(
+            env.iter()
+                .any(|line| line.starts_with("export VTEST_SOCKET_NAME "))
+        );
+        assert!(
+            env.iter()
+                .any(|line| line.starts_with("export VK_DRIVER_FILES "))
+        );
     }
 
     #[test]
