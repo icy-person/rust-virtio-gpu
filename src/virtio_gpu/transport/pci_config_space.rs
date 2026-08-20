@@ -1,5 +1,5 @@
 use crate::virtio_gpu::transport::pci::{
-    PciBar, VirtioPciCap64, VirtioPciCapability, VirtioPciNotifyCapability, VIRTIO_PCI_CAP_PCI_CFG,
+    PciBar, VIRTIO_PCI_CAP_PCI_CFG, VirtioPciCap64, VirtioPciCapability, VirtioPciNotifyCapability,
 };
 
 /// `VIRTIO_PCI_CAP_PCI_CFG` capability and its four-byte access window.
@@ -76,7 +76,8 @@ impl VirtioPciCfgCapability {
     }
 
     pub fn data(&self) -> Option<&[u8]> {
-        self.access_length().map(|length| &self.pci_cfg_data[..length])
+        self.access_length()
+            .map(|length| &self.pci_cfg_data[..length])
     }
 }
 
@@ -234,7 +235,10 @@ mod tests {
         assert_eq!(cap.cap.bar, 2);
         assert!(!cap.set_access(2, 2, 3));
         assert!(cap.set_data(&[1, 2, 3, 4]));
-        assert_eq!(VirtioPciCfgCapability::decode_le(&cap.encode_le()), Some(cap));
+        assert_eq!(
+            VirtioPciCfgCapability::decode_le(&cap.encode_le()),
+            Some(cap)
+        );
     }
 
     #[test]
@@ -267,7 +271,10 @@ mod tests {
         let third = config.read(second + 1, 1).unwrap() as usize;
         assert_ne!(second, 0);
         assert_ne!(third, 0);
-        assert_eq!(config.read(third + 3, 1), Some(VIRTIO_PCI_CAP_PCI_CFG as u64));
+        assert_eq!(
+            config.read(third + 3, 1),
+            Some(VIRTIO_PCI_CAP_PCI_CFG as u64)
+        );
         assert_eq!(config.read(third + 1, 1), Some(0));
     }
 
