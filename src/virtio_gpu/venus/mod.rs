@@ -13,8 +13,8 @@ mod runtime_impl;
 
 #[cfg(feature = "virglrenderer-backend")]
 pub mod runtime {
-    pub use super::runtime_wrapper::VenusRuntime;
     pub use super::runtime_impl::VenusRuntimeError;
+    pub use super::runtime_wrapper::VenusRuntime;
 }
 
 #[cfg(feature = "virglrenderer-backend")]
