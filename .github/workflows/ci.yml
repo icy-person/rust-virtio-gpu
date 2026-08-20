@@ -7,12 +7,16 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    env:
+      LIBGL_ALWAYS_SOFTWARE: "1"
+      VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
     steps:
       - uses: actions/checkout@v4
       - name: Install Venus backend system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libvirglrenderer-dev libvulkan-dev pkg-config clang
+          sudo apt-get install -y libvirglrenderer-dev libvulkan-dev mesa-vulkan-drivers pkg-config clang
+          test -f "$VK_DRIVER_FILES"
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
@@ -38,6 +42,9 @@ jobs:
           p.write_text(s.replace(old, new, 1))
           PY
           grep -q '4 => return' "$SRC"
+      - name: Verify Vulkan software device
+        run: |
+          vulkaninfo --summary 2>/dev/null | grep -E 'GPU|deviceName' | head -n 5 || true
       - name: Build
         run: cargo check --all-targets --all-features
       - name: Test
