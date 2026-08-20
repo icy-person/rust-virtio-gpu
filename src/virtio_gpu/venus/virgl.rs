@@ -152,8 +152,9 @@ impl VirglVenusBackend {
         let mut iovecs = if entries.is_empty() {
             Vec::new()
         } else {
-            self.make_iovecs(memory, entries)
-                .map_err(|_| virglrenderer::VirglError::IoError(std::io::Error::from_raw_os_error(14)))?
+            self.make_iovecs(memory, entries).map_err(|_| {
+                virglrenderer::VirglError::IoError(std::io::Error::from_raw_os_error(14))
+            })?
         };
 
         let resource = self.renderer.create_blob(
@@ -181,9 +182,9 @@ impl VirglVenusBackend {
         memory: &GuestMemory,
         entries: &[MemEntry],
     ) -> Result<(), virglrenderer::VirglError> {
-        let mut iovecs = self
-            .make_iovecs(memory, entries)
-            .map_err(|_| virglrenderer::VirglError::IoError(std::io::Error::from_raw_os_error(14)))?;
+        let mut iovecs = self.make_iovecs(memory, entries).map_err(|_| {
+            virglrenderer::VirglError::IoError(std::io::Error::from_raw_os_error(14))
+        })?;
         self.renderer.attach_backing(resource_id, &mut iovecs)?;
         self.backings
             .lock()
@@ -208,7 +209,10 @@ impl VirglVenusBackend {
             .remove(&resource_id);
     }
 
-    pub fn map_resource(&self, resource_id: u32) -> Result<(*mut std::ffi::c_void, u64), virglrenderer::VirglError> {
+    pub fn map_resource(
+        &self,
+        resource_id: u32,
+    ) -> Result<(*mut std::ffi::c_void, u64), virglrenderer::VirglError> {
         self.renderer.map(resource_id)
     }
 
