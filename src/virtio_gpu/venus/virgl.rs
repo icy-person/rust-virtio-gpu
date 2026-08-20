@@ -260,10 +260,7 @@ impl VirglVenusBackend {
             .remove(&resource_id);
     }
 
-    pub fn map_resource(
-        &self,
-        resource_id: u32,
-    ) -> Result<(u64, u32), virglrenderer::VirglError> {
+    pub fn map_resource(&self, resource_id: u32) -> Result<(u64, u32), virglrenderer::VirglError> {
         let (_ptr, size) = self.renderer.map(resource_id)?;
         let map_info = *self
             .map_info
@@ -284,7 +281,8 @@ impl VirglVenusBackend {
         ctx_id: u32,
         transfer: Transfer3D,
     ) -> Result<(), virglrenderer::VirglError> {
-        self.renderer.transfer_write(resource_id, ctx_id, transfer, None)
+        self.renderer
+            .transfer_write(resource_id, ctx_id, transfer, None)
     }
 
     pub fn transfer_read_to_guest(
@@ -309,7 +307,10 @@ impl VirglVenusBackend {
         for entry in entries {
             let len = entry.length as usize;
             memory
-                .write(GuestAddress::new(entry.addr), &staging[copied..copied + len])
+                .write(
+                    GuestAddress::new(entry.addr),
+                    &staging[copied..copied + len],
+                )
                 .map_err(|_| Self::backend_io_error())?;
             copied += len;
         }
