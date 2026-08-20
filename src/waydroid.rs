@@ -1,4 +1,4 @@
-use std::fs::{self};
+use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -15,6 +15,7 @@ pub struct WaydroidVenusConfig {
     pub socket_host: PathBuf,
     pub socket_guest: PathBuf,
     pub render_node: Option<PathBuf>,
+    pub host_vulkan_icd: Option<PathBuf>,
     pub vulkan_icd: Option<PathBuf>,
     pub config_session: PathBuf,
     pub init_environ_rc: Option<PathBuf>,
@@ -28,6 +29,7 @@ impl Default for WaydroidVenusConfig {
             socket_host: PathBuf::from(DEFAULT_VTEST_SOCKET),
             socket_guest: PathBuf::from(DEFAULT_GUEST_SOCKET),
             render_node: None,
+            host_vulkan_icd: None,
             vulkan_icd: Some(PathBuf::from(DEFAULT_VENUS_ICD)),
             config_session: PathBuf::from("/var/lib/waydroid/config_session"),
             init_environ_rc: None,
@@ -150,6 +152,9 @@ impl WaydroidVenusConfig {
             .stderr(Stdio::inherit());
         if let Some(render_node) = &self.render_node {
             cmd.env("VTEST_RENDERNODE", render_node);
+        }
+        if let Some(host_icd) = &self.host_vulkan_icd {
+            cmd.env("VK_DRIVER_FILES", host_icd);
         }
         let child = cmd.spawn()?;
         wait_for_path(&self.socket_host, Duration::from_secs(5))?;
