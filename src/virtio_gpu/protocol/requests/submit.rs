@@ -67,11 +67,7 @@ impl Submit3DCommand {
         Self::with_in_fences(ctx_id, Vec::new(), command_stream)
     }
 
-    pub fn with_in_fences(
-        ctx_id: u32,
-        in_fences: Vec<u64>,
-        command_stream: Vec<u8>,
-    ) -> Self {
+    pub fn with_in_fences(ctx_id: u32, in_fences: Vec<u64>, command_stream: Vec<u8>) -> Self {
         assert!(
             command_stream.len() <= u32::MAX as usize,
             "command stream is too large"
@@ -83,11 +79,8 @@ impl Submit3DCommand {
             "command stream must be 4-byte aligned"
         );
 
-        let request = Submit3D::with_in_fences(
-            ctx_id,
-            command_stream.len() as u32,
-            in_fences.len() as u32,
-        );
+        let request =
+            Submit3D::with_in_fences(ctx_id, command_stream.len() as u32, in_fences.len() as u32);
 
         Self {
             request,
