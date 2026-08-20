@@ -224,7 +224,6 @@ mod tests {
     use super::*;
     use crate::virtio_gpu::transport::pci::{
         PCI_DEVICE_ID_GPU, PCI_VENDOR_ID_VIRTIO, PciBar, VIRTIO_PCI_CAP_COMMON_CFG,
-        VIRTIO_PCI_CAP_SHARED_MEMORY_CFG,
     };
 
     #[test]
