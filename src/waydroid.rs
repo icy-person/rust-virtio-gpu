@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 pub const DEFAULT_VTEST_SOCKET: &str = "/tmp/.virgl_test";
 pub const DEFAULT_GUEST_SOCKET: &str = "/run/xdg/.virgl_test";
 pub const DEFAULT_VENUS_ICD: &str = "/vendor/etc/vulkan/icd.d/virtio_icd.x86_64.json";
+pub const DEFAULT_WAYDROID_ROOT: &str = "/var/lib/waydroid";
 
 #[derive(Debug, Clone)]
 pub struct WaydroidVenusConfig {
@@ -24,6 +25,7 @@ pub struct WaydroidVenusConfig {
 
 impl Default for WaydroidVenusConfig {
     fn default() -> Self {
+        let root = PathBuf::from(DEFAULT_WAYDROID_ROOT);
         Self {
             server: PathBuf::from("virgl_test_server"),
             socket_host: PathBuf::from(DEFAULT_VTEST_SOCKET),
@@ -31,9 +33,9 @@ impl Default for WaydroidVenusConfig {
             render_node: None,
             host_vulkan_icd: None,
             vulkan_icd: Some(PathBuf::from(DEFAULT_VENUS_ICD)),
-            config_session: PathBuf::from("/var/lib/waydroid/config_session"),
+            config_session: root.join("config_session"),
             init_environ_rc: None,
-            waydroid_props: Vec::new(),
+            waydroid_props: vec![root.join("waydroid.prop")],
         }
     }
 }
@@ -62,6 +64,20 @@ impl WaydroidVenusConfig {
         ]
     }
 
+    fn discovered_init_environ(&self) -> Option<PathBuf> {
+        if let Some(path) = &self.init_environ_rc {
+            return Some(path.clone());
+        }
+        let root = Path::new(DEFAULT_WAYDROID_ROOT);
+        [
+            root.join("overlay/init.environ.rc"),
+            root.join("overlay/system/etc/init.environ.rc"),
+            root.join("rootfs/init.environ.rc"),
+        ]
+        .into_iter()
+        .find(|path| path.is_file())
+    }
+
     pub fn patch_config_session(&self) -> io::Result<bool> {
         let entry = format!(
             "lxc.mount.entry = {} {} none bind,create=file,optional 0 0",
@@ -75,7 +91,7 @@ impl WaydroidVenusConfig {
     }
 
     pub fn patch_init_environ(&self) -> io::Result<bool> {
-        let Some(path) = self.init_environ_rc.as_deref() else {
+        let Some(path) = self.discovered_init_environ() else {
             return Ok(false);
         };
         let mut content = fs::read_to_string(path)?;
@@ -99,12 +115,15 @@ impl WaydroidVenusConfig {
     pub fn patch_props(&self) -> io::Result<usize> {
         let mut changed = 0;
         for path in &self.waydroid_props {
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)?;
+            }
             let mut content = if path.exists() {
                 fs::read_to_string(path)?
             } else {
                 String::new()
             };
-            let mut file_changed = false;
+            let original = content.clone();
             for prop in Self::prop_lines() {
                 let key = prop.split('=').next().unwrap_or_default();
                 let mut found = false;
@@ -115,21 +134,19 @@ impl WaydroidVenusConfig {
                             lines.push(*prop);
                             found = true;
                         }
-                        file_changed = true;
                     } else {
                         lines.push(line);
                     }
                 }
                 if !found {
                     lines.push(*prop);
-                    file_changed = true;
                 }
                 content = lines.join("\n");
                 if !content.ends_with('\n') {
                     content.push('\n');
                 }
             }
-            if file_changed {
+            if content != original {
                 fs::write(path, content)?;
                 changed += 1;
             }
@@ -164,13 +181,16 @@ impl WaydroidVenusConfig {
 
     pub fn setup(&self) -> io::Result<()> {
         self.patch_config_session()?;
-        self.patch_init_environ()?;
         self.patch_props()?;
+        self.patch_init_environ()?;
         Ok(())
     }
 }
 
 fn ensure_line(path: &Path, line: &str) -> io::Result<bool> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
     let mut content = if path.exists() {
         fs::read_to_string(path)?
     } else {
@@ -262,6 +282,13 @@ mod tests {
             env.iter()
                 .any(|line| line.starts_with("export VK_DRIVER_FILES "))
         );
+    }
+
+    #[test]
+    fn default_setup_targets_waydroid_prop() {
+        let config = WaydroidVenusConfig::default();
+        assert_eq!(config.waydroid_props.len(), 1);
+        assert!(config.waydroid_props[0].ends_with("waydroid.prop"));
     }
 
     #[test]
