@@ -1,11 +1,12 @@
 #![cfg(feature = "virglrenderer-backend")]
 
 use std::collections::HashMap;
+use std::io::{IoSlice, IoSliceMut};
 use std::sync::{Arc, Mutex};
 
 use virglrenderer::{
-    FenceHandler, Iovec, ResourceCreateBlob as VirglResourceCreateBlob, VirglRenderer,
-    VirglRendererFlags,
+    FenceHandler, Iovec, ResourceCreate3D, ResourceCreateBlob as VirglResourceCreateBlob,
+    Transfer3D, VirglRenderer, VirglRendererFlags,
 };
 
 use crate::virtio_gpu::protocol::commands::{CAPSET_VENUS, FLAG_FENCE};
@@ -56,6 +57,7 @@ pub struct VirglVenusBackend {
     renderer: Arc<VirglRenderer>,
     fence_sink: Arc<FenceSink>,
     backings: Mutex<HashMap<u32, Vec<Iovec>>>,
+    map_info: Mutex<HashMap<u32, u32>>,
 }
 
 impl VirglVenusBackend {
@@ -77,6 +79,7 @@ impl VirglVenusBackend {
             renderer: Arc::new(renderer),
             fence_sink,
             backings: Mutex::new(HashMap::new()),
+            map_info: Mutex::new(HashMap::new()),
         })
     }
 
@@ -133,6 +136,42 @@ impl VirglVenusBackend {
         virglrenderer::VirglError::IoError(std::io::Error::from_raw_os_error(14))
     }
 
+    pub fn create_3d(
+        &self,
+        resource_id: u32,
+        target: u32,
+        format: u32,
+        bind: u32,
+        width: u32,
+        height: u32,
+        depth: u32,
+        array_size: u32,
+        last_level: u32,
+        nr_samples: u32,
+        flags: u32,
+    ) -> Result<(), virglrenderer::VirglError> {
+        self.renderer.create_3d(
+            resource_id,
+            ResourceCreate3D {
+                target,
+                format,
+                bind,
+                width,
+                height,
+                depth,
+                array_size,
+                last_level,
+                nr_samples,
+                flags,
+            },
+        )?;
+        self.map_info
+            .lock()
+            .expect("virgl map-info map poisoned")
+            .insert(resource_id, 0);
+        Ok(())
+    }
+
     pub fn create_blob(
         &self,
         ctx_id: u32,
@@ -176,6 +215,11 @@ impl VirglVenusBackend {
                 .insert(resource.resource_id, iovecs);
         }
 
+        self.map_info
+            .lock()
+            .expect("virgl map-info map poisoned")
+            .insert(resource.resource_id, resource.map_info.unwrap_or(0));
+
         Ok(resource.resource_id)
     }
 
@@ -210,17 +254,79 @@ impl VirglVenusBackend {
             .lock()
             .expect("virgl backing map poisoned")
             .remove(&resource_id);
+        self.map_info
+            .lock()
+            .expect("virgl map-info map poisoned")
+            .remove(&resource_id);
     }
 
     pub fn map_resource(
         &self,
         resource_id: u32,
-    ) -> Result<(*mut std::ffi::c_void, u64), virglrenderer::VirglError> {
-        self.renderer.map(resource_id)
+    ) -> Result<(u64, u32), virglrenderer::VirglError> {
+        let (_ptr, size) = self.renderer.map(resource_id)?;
+        let map_info = *self
+            .map_info
+            .lock()
+            .expect("virgl map-info map poisoned")
+            .get(&resource_id)
+            .unwrap_or(&0);
+        Ok((size, map_info))
     }
 
     pub fn unmap_resource(&self, resource_id: u32) -> Result<(), virglrenderer::VirglError> {
         self.renderer.unmap(resource_id)
+    }
+
+    pub fn transfer_write(
+        &self,
+        resource_id: u32,
+        ctx_id: u32,
+        transfer: Transfer3D,
+    ) -> Result<(), virglrenderer::VirglError> {
+        self.renderer.transfer_write(resource_id, ctx_id, transfer, None)
+    }
+
+    pub fn transfer_read_to_guest(
+        &self,
+        resource_id: u32,
+        ctx_id: u32,
+        transfer: Transfer3D,
+        memory: &GuestMemory,
+        entries: &[MemEntry],
+    ) -> Result<(), virglrenderer::VirglError> {
+        let total = entries.iter().try_fold(0usize, |acc, e| {
+            acc.checked_add(e.length as usize)
+                .ok_or_else(Self::backend_io_error)
+        })?;
+        let mut staging = vec![0u8; total];
+        {
+            let io = IoSliceMut::new(&mut staging);
+            self.renderer
+                .transfer_read(resource_id, ctx_id, transfer, Some(io))?;
+        }
+        let mut copied = 0usize;
+        for entry in entries {
+            let len = entry.length as usize;
+            memory
+                .write(GuestAddress::new(entry.addr), &staging[copied..copied + len])
+                .map_err(|_| Self::backend_io_error())?;
+            copied += len;
+        }
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    fn transfer_write_from_guest_staging(
+        &self,
+        resource_id: u32,
+        ctx_id: u32,
+        transfer: Transfer3D,
+        data: &[u8],
+    ) -> Result<(), virglrenderer::VirglError> {
+        let io = IoSlice::new(data);
+        self.renderer
+            .transfer_write(resource_id, ctx_id, transfer, Some(&io))
     }
 
     pub fn submit(
@@ -235,17 +341,8 @@ impl VirglVenusBackend {
         self.renderer.submit_cmd(ctx_id, commands, in_fences)?;
 
         if flags & FLAG_FENCE != 0 {
-            let ret = unsafe {
-                virglrenderer_sys::virgl_renderer_context_create_fence(
-                    ctx_id,
-                    flags,
-                    ring_idx as u32,
-                    fence_id,
-                )
-            };
-            if ret != 0 {
-                return Err(virglrenderer::VirglError::FenceError);
-            }
+            self.renderer
+                .context_create_fence(ctx_id, flags, ring_idx as u32, fence_id)?;
         }
         Ok(())
     }
