@@ -30,6 +30,10 @@ impl VenusRuntime {
         })
     }
 
+    pub fn detach_backing(&mut self, resource_id: u32) {
+        self.inner.backend.detach_backing(resource_id);
+    }
+
     fn error_response(request: &CtrlHeader, error: &VenusRuntimeError) -> VenusResponse {
         let typ = match error {
             VenusRuntimeError::Dispatch(VenusDispatchError::InvalidRequest)
