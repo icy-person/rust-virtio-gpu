@@ -46,11 +46,13 @@ impl Renderer for SoftwareRenderer {
     }
 
     fn transfer_resource(&mut self, resource: &mut Resource) -> Result<(), DeviceError> {
+        self.framebuffer = FrameBuffer::new(resource.width, resource.height);
         self.upload(resource.pixels());
 
         Ok(())
     }
     fn flush_resource(&mut self, resource: &mut Resource) -> Result<(), DeviceError> {
+        self.framebuffer = FrameBuffer::new(resource.width, resource.height);
         self.upload(resource.pixels());
 
         Ok(())
