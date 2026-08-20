@@ -1,4 +1,6 @@
-pub mod device;
+pub mod device {
+    include!(concat!(env!("OUT_DIR"), "/device.rs"));
+}
 pub mod display;
 pub mod features;
 pub mod protocol;

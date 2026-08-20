@@ -1,5 +1,3 @@
-use crate::virtio_gpu::protocol::header::CtrlHeader;
-
 pub struct ResourceSetScanout {
     pub scanout_id: u32,
     pub resource_id: u32,

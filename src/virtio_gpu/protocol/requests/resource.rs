@@ -1,7 +1,5 @@
 use crate::virtio_gpu::device::DeviceError;
-use crate::virtio_gpu::protocol::{
-    commands::CMD_RESOURCE_CREATE_2D, formats::VirtioGpuFormat, header::CtrlHeader,
-};
+use crate::virtio_gpu::protocol::{formats::VirtioGpuFormat, header::CtrlHeader};
 
 #[derive(Debug, Clone, Copy)]
 pub struct ResourceCreate2D {

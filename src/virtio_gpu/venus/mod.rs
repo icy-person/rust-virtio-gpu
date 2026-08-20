@@ -2,7 +2,10 @@ pub mod command;
 pub mod context;
 pub mod dispatcher;
 pub mod resource;
-pub mod state;
+
+pub mod state {
+    include!(concat!(env!("OUT_DIR"), "/venus_state.rs"));
+}
 
 #[cfg(feature = "virglrenderer-backend")]
 pub mod runtime;

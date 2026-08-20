@@ -65,12 +65,8 @@ impl VirglVenusBackend {
             .use_async_fence_cb(true)
             .use_thread_sync(true);
 
-        let renderer = VirglRenderer::init(
-            flags,
-            Box::new(FenceSinkProxy(fence_sink.clone())),
-            None,
-            None,
-        )?;
+        let renderer =
+            VirglRenderer::init(flags, Box::new(FenceSinkProxy(fence_sink.clone())), None)?;
 
         Ok(Self {
             renderer: Arc::new(renderer),
@@ -141,10 +137,6 @@ impl VirglVenusBackend {
     ) -> Result<(), virglrenderer::VirglError> {
         self.renderer.submit_cmd(ctx_id, commands, in_fences)?;
 
-        // virglrenderer-rs 0.1.4 exposes the stable/global fence API rather than
-        // the newer context/timeline fence API. Keep the upper-layer timeline
-        // state authoritative and use the renderer's global fence as the host
-        // completion signal until the wrapper exposes context_create_fence.
         if flags & FLAG_FENCE != 0 {
             let fence32 =
                 u32::try_from(fence_id).map_err(|_| virglrenderer::VirglError::FenceError)?;
