@@ -11,7 +11,7 @@
     clippy::new_without_default,
     clippy::result_unit_err,
     clippy::too_many_arguments,
-    clippy::type_complexity,
+    clippy::type_complexity
 )]
 
 pub mod virtio_gpu;
