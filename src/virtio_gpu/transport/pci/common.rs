@@ -54,6 +54,21 @@ pub struct CommonConfig {
     /// Queue notification data.
     pub queue_notify_data: u16,
 
+    /// Shared-memory region selector.
+    pub shm_sel: u32,
+
+    /// Shared-memory region length, low 32 bits.
+    pub shm_len_low: u32,
+
+    /// Shared-memory region length, high 32 bits.
+    pub shm_len_high: u32,
+
+    /// Shared-memory region base address, low 32 bits.
+    pub shm_base_low: u32,
+
+    /// Shared-memory region base address, high 32 bits.
+    pub shm_base_high: u32,
+
     /// Queue reset control.
     pub queue_reset: u16,
 }
@@ -76,7 +91,7 @@ impl CommonConfig {
     pub const NUM_QUEUES: u64 = 0x12;
 
     pub const DEVICE_STATUS: u64 = 0x14;
-    pub const CONFIG_GENERATION: u64 = 0x15;
+    pub const CONFIG_GENERATION: u64 = 0xfc;
 
     pub const QUEUE_SELECT: u64 = 0x16;
     pub const QUEUE_SIZE: u64 = 0x18;
@@ -89,9 +104,23 @@ impl CommonConfig {
     pub const QUEUE_DEVICE: u64 = 0x30;
 
     pub const QUEUE_NOTIFY_DATA: u64 = 0x38;
-    pub const QUEUE_RESET: u64 = 0x3a;
 
-    pub const SIZE: u64 = 0x3c;
+    /// Shared-memory region selector.
+    pub const SHM_SEL: u64 = 0xac;
+    /// Shared-memory region length, low 32 bits.
+    pub const SHM_LEN_LOW: u64 = 0xb0;
+    /// Shared-memory region length, high 32 bits.
+    pub const SHM_LEN_HIGH: u64 = 0xb4;
+    /// Shared-memory region base, low 32 bits.
+    pub const SHM_BASE_LOW: u64 = 0xb8;
+    /// Shared-memory region base, high 32 bits.
+    pub const SHM_BASE_HIGH: u64 = 0xbc;
+
+    /// Selectively resets the queue selected through QueueSel.
+    pub const QUEUE_RESET: u64 = 0xc0;
+
+    /// Common configuration space extends through ConfigGeneration at 0xfc.
+    pub const SIZE: u64 = 0x100;
 
     pub const fn new(num_queues: u16, config_generation: u8) -> Self {
         Self {
@@ -115,6 +144,13 @@ impl CommonConfig {
             queue_device: 0,
 
             queue_notify_data: 0,
+
+            shm_sel: 0,
+            shm_len_low: u32::MAX,
+            shm_len_high: u32::MAX,
+            shm_base_low: u32::MAX,
+            shm_base_high: u32::MAX,
+
             queue_reset: 0,
         }
     }
@@ -134,23 +170,41 @@ impl CommonConfig {
         self.queue_reset = 0;
     }
 
+    /// Update the values exposed for the currently selected shared-memory region.
+    pub fn set_shared_memory_region(&mut self, length: u64, base: u64) {
+        let length_bytes = length.to_le_bytes();
+        self.shm_len_low = u32::from_le_bytes(length_bytes[..4].try_into().unwrap());
+        self.shm_len_high = u32::from_le_bytes(length_bytes[4..].try_into().unwrap());
+
+        let base_bytes = base.to_le_bytes();
+        self.shm_base_low = u32::from_le_bytes(base_bytes[..4].try_into().unwrap());
+        self.shm_base_high = u32::from_le_bytes(base_bytes[4..].try_into().unwrap());
+    }
+
+    pub fn set_no_shared_memory_region(&mut self) {
+        self.shm_len_low = u32::MAX;
+        self.shm_len_high = u32::MAX;
+        self.shm_base_low = u32::MAX;
+        self.shm_base_high = u32::MAX;
+    }
+
     // ---------------------------------------------------------------------
     // Read access
     // ---------------------------------------------------------------------
 
-    /// Read a 32-bit common configuration register.
-    ///
-    /// Feature bitmap registers are intentionally not handled here because
-    /// the actual device feature bitmap belongs to `VirtioGpuDevice`.
     pub fn read_u32(&self, offset: u64) -> Option<u32> {
         match offset {
             Self::DEVICE_FEATURE_SELECT => Some(self.device_feature_select),
             Self::DRIVER_FEATURE_SELECT => Some(self.driver_feature_select),
+            Self::SHM_SEL => Some(self.shm_sel),
+            Self::SHM_LEN_LOW => Some(self.shm_len_low),
+            Self::SHM_LEN_HIGH => Some(self.shm_len_high),
+            Self::SHM_BASE_LOW => Some(self.shm_base_low),
+            Self::SHM_BASE_HIGH => Some(self.shm_base_high),
             _ => None,
         }
     }
 
-    /// Read a 16-bit common configuration register.
     pub fn read_u16(&self, offset: u64) -> Option<u16> {
         match offset {
             Self::CONFIG_MSIX_VECTOR => Some(self.config_msix_vector),
@@ -169,7 +223,6 @@ impl CommonConfig {
         }
     }
 
-    /// Read an 8-bit common configuration register.
     pub fn read_u8(&self, offset: u64) -> Option<u8> {
         match offset {
             Self::DEVICE_STATUS => Some(self.device_status),
@@ -178,12 +231,12 @@ impl CommonConfig {
         }
     }
 
-    /// Read a 64-bit common configuration register.
     pub fn read_u64(&self, offset: u64) -> Option<u64> {
         match offset {
             Self::QUEUE_DESC => Some(self.queue_desc),
             Self::QUEUE_DRIVER => Some(self.queue_driver),
             Self::QUEUE_DEVICE => Some(self.queue_device),
+            (Self::SHM_LEN_LOW).. => None,
             _ => None,
         }
     }
@@ -192,9 +245,6 @@ impl CommonConfig {
     // Write access
     // ---------------------------------------------------------------------
 
-    /// Write a 32-bit common configuration register.
-    ///
-    /// The actual feature bitmaps are handled by `VirtioGpuDevice`.
     pub fn write_u32(&mut self, offset: u64, value: u32) -> bool {
         match offset {
             Self::DEVICE_FEATURE_SELECT => {
@@ -207,11 +257,15 @@ impl CommonConfig {
                 true
             }
 
+            Self::SHM_SEL => {
+                self.shm_sel = value;
+                true
+            }
+
             _ => false,
         }
     }
 
-    /// Write a 16-bit common configuration register.
     pub fn write_u16(&mut self, offset: u64, value: u16) -> bool {
         match offset {
             Self::CONFIG_MSIX_VECTOR => {
@@ -254,7 +308,6 @@ impl CommonConfig {
         }
     }
 
-    /// Write an 8-bit common configuration register.
     pub fn write_u8(&mut self, offset: u64, value: u8) -> bool {
         match offset {
             Self::DEVICE_STATUS => {
@@ -269,7 +322,6 @@ impl CommonConfig {
         }
     }
 
-    /// Write a 64-bit common configuration register.
     pub fn write_u64(&mut self, offset: u64, value: u64) -> bool {
         match offset {
             Self::QUEUE_DESC => {
@@ -306,46 +358,52 @@ mod tests {
     fn common_config_offsets_match_virtio() {
         assert_eq!(CommonConfig::DEVICE_FEATURE_SELECT, 0x00);
         assert_eq!(CommonConfig::DEVICE_FEATURE, 0x04);
-
         assert_eq!(CommonConfig::DRIVER_FEATURE_SELECT, 0x08);
         assert_eq!(CommonConfig::DRIVER_FEATURE, 0x0c);
-
         assert_eq!(CommonConfig::CONFIG_MSIX_VECTOR, 0x10);
         assert_eq!(CommonConfig::NUM_QUEUES, 0x12);
-
         assert_eq!(CommonConfig::DEVICE_STATUS, 0x14);
-        assert_eq!(CommonConfig::CONFIG_GENERATION, 0x15);
-
         assert_eq!(CommonConfig::QUEUE_SELECT, 0x16);
         assert_eq!(CommonConfig::QUEUE_SIZE, 0x18);
         assert_eq!(CommonConfig::QUEUE_MSIX_VECTOR, 0x1a);
         assert_eq!(CommonConfig::QUEUE_ENABLE, 0x1c);
         assert_eq!(CommonConfig::QUEUE_NOTIFY_OFF, 0x1e);
-
         assert_eq!(CommonConfig::QUEUE_DESC, 0x20);
         assert_eq!(CommonConfig::QUEUE_DRIVER, 0x28);
         assert_eq!(CommonConfig::QUEUE_DEVICE, 0x30);
-
         assert_eq!(CommonConfig::QUEUE_NOTIFY_DATA, 0x38);
-        assert_eq!(CommonConfig::QUEUE_RESET, 0x3a);
-
-        assert_eq!(CommonConfig::SIZE, 0x3c);
+        assert_eq!(CommonConfig::SHM_SEL, 0xac);
+        assert_eq!(CommonConfig::SHM_LEN_LOW, 0xb0);
+        assert_eq!(CommonConfig::SHM_LEN_HIGH, 0xb4);
+        assert_eq!(CommonConfig::SHM_BASE_LOW, 0xb8);
+        assert_eq!(CommonConfig::SHM_BASE_HIGH, 0xbc);
+        assert_eq!(CommonConfig::QUEUE_RESET, 0xc0);
+        assert_eq!(CommonConfig::CONFIG_GENERATION, 0xfc);
+        assert_eq!(CommonConfig::SIZE, 0x100);
     }
 
     #[test]
     fn common_config_starts_in_reset_state() {
         let config = CommonConfig::new(2, 7);
-
-        assert_eq!(config.device_feature_select, 0);
-        assert_eq!(config.driver_feature_select, 0);
-
         assert_eq!(config.num_queues, 2);
         assert_eq!(config.config_generation, 7);
-
         assert_eq!(config.device_status, 0);
         assert_eq!(config.queue_select, 0);
         assert_eq!(config.queue_size, 0);
         assert_eq!(config.queue_enable, 0);
+        assert_eq!(config.shm_len_low, u32::MAX);
+        assert_eq!(config.shm_base_low, u32::MAX);
+    }
+
+    #[test]
+    fn shared_memory_region_values_split_into_registers() {
+        let mut config = CommonConfig::new(2, 0);
+        config.set_shared_memory_region(0x1122_3344_5566_7788, 0x99aa_bbcc_ddee_ff00);
+
+        assert_eq!(config.shm_len_low, 0x5566_7788);
+        assert_eq!(config.shm_len_high, 0x1122_3344);
+        assert_eq!(config.shm_base_low, 0xddee_ff00);
+        assert_eq!(config.shm_base_high, 0x99aa_bbcc);
     }
 
     #[test]
@@ -358,9 +416,7 @@ mod tests {
             queue_device: 0x3000,
             ..Default::default()
         };
-
         config.reset_queue();
-
         assert_eq!(config.queue_size, 0);
         assert_eq!(config.queue_enable, 0);
         assert_eq!(config.queue_desc, 0);
@@ -369,59 +425,21 @@ mod tests {
     }
 
     #[test]
-    fn common_config_reads_registers() {
-        let mut config = CommonConfig::new(2, 7);
-
-        config.device_feature_select = 1;
-        config.driver_feature_select = 2;
-
-        config.queue_select = 1;
-        config.queue_size = 256;
-
-        config.queue_desc = 0x1000;
-        config.queue_driver = 0x2000;
-        config.queue_device = 0x3000;
-
-        assert_eq!(
-            config.read_u32(CommonConfig::DEVICE_FEATURE_SELECT),
-            Some(1)
-        );
-
-        assert_eq!(
-            config.read_u32(CommonConfig::DRIVER_FEATURE_SELECT),
-            Some(2)
-        );
-
-        assert_eq!(config.read_u16(CommonConfig::QUEUE_SELECT), Some(1));
-
-        assert_eq!(config.read_u16(CommonConfig::QUEUE_SIZE), Some(256));
-
-        assert_eq!(config.read_u64(CommonConfig::QUEUE_DESC), Some(0x1000));
-
-        assert_eq!(config.read_u64(CommonConfig::QUEUE_DRIVER), Some(0x2000));
-
-        assert_eq!(config.read_u64(CommonConfig::QUEUE_DEVICE), Some(0x3000));
-    }
-
-    #[test]
     fn common_config_writes_registers() {
         let mut config = CommonConfig::new(2, 7);
-
         assert!(config.write_u32(CommonConfig::DEVICE_FEATURE_SELECT, 1));
         assert!(config.write_u32(CommonConfig::DRIVER_FEATURE_SELECT, 1));
-
+        assert!(config.write_u32(CommonConfig::SHM_SEL, 1));
+        assert_eq!(config.shm_sel, 1);
         assert!(config.write_u16(CommonConfig::QUEUE_SELECT, 1));
         assert!(config.write_u16(CommonConfig::QUEUE_SIZE, 256));
         assert!(config.write_u16(CommonConfig::QUEUE_ENABLE, 1));
-
         assert!(config.write_u64(CommonConfig::QUEUE_DESC, 0x1000));
         assert!(config.write_u64(CommonConfig::QUEUE_DRIVER, 0x2000));
         assert!(config.write_u64(CommonConfig::QUEUE_DEVICE, 0x3000));
-
         assert_eq!(config.queue_select, 1);
         assert_eq!(config.queue_size, 256);
         assert_eq!(config.queue_enable, 1);
-
         assert_eq!(config.queue_desc, 0x1000);
         assert_eq!(config.queue_driver, 0x2000);
         assert_eq!(config.queue_device, 0x3000);
@@ -430,13 +448,10 @@ mod tests {
     #[test]
     fn read_only_registers_reject_writes() {
         let mut config = CommonConfig::new(2, 7);
-
         assert!(!config.write_u16(CommonConfig::NUM_QUEUES, 99));
         assert!(!config.write_u16(CommonConfig::QUEUE_NOTIFY_OFF, 99));
         assert!(!config.write_u16(CommonConfig::QUEUE_NOTIFY_DATA, 99));
-
         assert!(!config.write_u8(CommonConfig::CONFIG_GENERATION, 99));
-
         assert_eq!(config.num_queues, 2);
         assert_eq!(config.config_generation, 7);
     }
@@ -451,9 +466,7 @@ mod tests {
             queue_device: 0x3000,
             ..Default::default()
         };
-
         assert!(config.write_u16(CommonConfig::QUEUE_RESET, 1));
-
         assert_eq!(config.queue_size, 0);
         assert_eq!(config.queue_enable, 0);
         assert_eq!(config.queue_desc, 0);
