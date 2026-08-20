@@ -15,13 +15,13 @@ use crate::virtio_gpu::protocol::responses::{RespOkNoData, RespResourceUuid};
 use crate::virtio_gpu::transport::memory::GuestMemory;
 
 use super::virgl::{CompletedFence, VirglVenusBackend};
-use super::{VenusDispatchError, VenusResponse, VenusState};
+use super::{VenusDispatchError, VenusResponse, VenusState, VenusStateError};
 
 #[derive(Debug)]
 pub enum VenusRuntimeError {
     Backend(virglrenderer::VirglError),
     Dispatch(VenusDispatchError),
-    State(super::VenusStateError),
+    State(VenusStateError),
 }
 
 impl From<virglrenderer::VirglError> for VenusRuntimeError {
@@ -36,8 +36,8 @@ impl From<VenusDispatchError> for VenusRuntimeError {
     }
 }
 
-impl From<super::VenusStateError> for VenusRuntimeError {
-    fn from(value: super::VenusStateError) -> Self {
+impl From<VenusStateError> for VenusRuntimeError {
+    fn from(value: VenusStateError) -> Self {
         Self::State(value)
     }
 }
@@ -120,7 +120,7 @@ impl VenusRuntime {
                     GetCapsetInfo::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
                 if req.capset_index != 0 {
                     return Err(VenusDispatchError::State(
-                        super::VenusStateError::UnsupportedCapability,
+                        VenusStateError::UnsupportedCapability,
                     )
                     .into());
                 }
@@ -131,7 +131,7 @@ impl VenusRuntime {
                     GetCapset::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
                 if req.capset_id != CAPSET_VENUS || req.capset_version == 0 {
                     return Err(VenusDispatchError::State(
-                        super::VenusStateError::UnsupportedCapability,
+                        VenusStateError::UnsupportedCapability,
                     )
                     .into());
                 }
@@ -142,7 +142,7 @@ impl VenusRuntime {
                     ContextCreate::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
                 if !req.is_venus() {
                     return Err(VenusDispatchError::State(
-                        super::VenusStateError::UnsupportedCapability,
+                        VenusStateError::UnsupportedCapability,
                     )
                     .into());
                 }
