@@ -57,17 +57,14 @@ impl VenusRuntime {
                     .try_into()
                     .map_err(|_| VenusDispatchError::InvalidRequest)?,
             );
-            if let Some(&internal_id) =
-                self.guest_to_internal.get(&(header.ctx_id, ring, guest_id))
+            if let Some(&internal_id) = self.guest_to_internal.get(&(header.ctx_id, ring, guest_id))
             {
                 translated[offset..offset + 8].copy_from_slice(&internal_id.to_le_bytes());
             }
         }
 
         let mut response = self.inner.dispatch(&translated)?;
-        let internal_fence = response
-            .fence
-            .ok_or(VenusDispatchError::InvalidRequest)?;
+        let internal_fence = response.fence.ok_or(VenusDispatchError::InvalidRequest)?;
         self.guest_to_internal
             .insert((header.ctx_id, ring, header.fence_id), internal_fence);
         self.internal_to_guest
@@ -92,9 +89,9 @@ impl VenusRuntime {
             .poll_fences()
             .into_iter()
             .map(|mut fence| {
-                if let Some(&guest_id) = self
-                    .internal_to_guest
-                    .get(&(fence.ctx_id, fence.ring_idx, fence.fence_id))
+                if let Some(&guest_id) =
+                    self.internal_to_guest
+                        .get(&(fence.ctx_id, fence.ring_idx, fence.fence_id))
                 {
                     fence.fence_id = guest_id;
                     self.internal_to_guest.remove(&(
