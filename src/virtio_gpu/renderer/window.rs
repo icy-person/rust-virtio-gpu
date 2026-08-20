@@ -7,6 +7,7 @@ pub struct DisplayWindow {
     pub window: Window,
 }
 
+#[allow(deprecated)]
 impl DisplayWindow {
     pub fn new(event_loop: &EventLoop<()>) -> Self {
         let window = event_loop
