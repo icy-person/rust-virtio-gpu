@@ -1,1 +1,0 @@
-Release workflow publishes Linux x86_64 bundles for v* tags.
