@@ -158,7 +158,9 @@ fn main() {
     }
     generated = generated.replacen(old_standard_tail, new_standard_tail, 1);
 
-    generated.push_str("\ninclude!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/src/virtio_gpu/device_ext.rs\"));\n");
+    generated.push_str(
+        "\ninclude!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/src/virtio_gpu/device_ext.rs\"));\n",
+    );
 
     fs::write(out_dir.join("device.rs"), generated).expect("failed to write generated device.rs");
 
