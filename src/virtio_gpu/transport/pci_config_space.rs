@@ -131,7 +131,7 @@ impl PciConfigSpace {
 mod tests {
     use super::*;
     use crate::virtio_gpu::transport::pci::{
-        PciBar, PCI_DEVICE_ID_GPU, PCI_VENDOR_ID_VIRTIO, VIRTIO_PCI_CAP_COMMON_CFG,
+        PCI_DEVICE_ID_GPU, PCI_VENDOR_ID_VIRTIO, PciBar, VIRTIO_PCI_CAP_COMMON_CFG,
         VIRTIO_PCI_CAP_SHARED_MEMORY_CFG,
     };
 
@@ -140,7 +140,10 @@ mod tests {
         let config = PciConfigSpace::new(PCI_VENDOR_ID_VIRTIO, PCI_DEVICE_ID_GPU);
         assert_eq!(config.read(0, 2), Some(PCI_VENDOR_ID_VIRTIO as u64));
         assert_eq!(config.read(2, 2), Some(PCI_DEVICE_ID_GPU as u64));
-        assert_eq!(config.capability_pointer(), PciConfigSpace::FIRST_CAPABILITY);
+        assert_eq!(
+            config.capability_pointer(),
+            PciConfigSpace::FIRST_CAPABILITY
+        );
     }
 
     #[test]
