@@ -104,10 +104,7 @@ impl VirtioPciTransport {
         build_pci_config_space(self)
     }
 
-    pub fn pci_cfg_read(
-        &self,
-        cfg: &VirtioPciCfgCapability,
-    ) -> Result<[u8; 4], PciCfgAccessError> {
+    pub fn pci_cfg_read(&self, cfg: &VirtioPciCfgCapability) -> Result<[u8; 4], PciCfgAccessError> {
         let length = validate_target(self, cfg)?;
         let bar = cfg.cap.bar;
         let offset = u64::from(cfg.cap.offset);
