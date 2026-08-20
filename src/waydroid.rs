@@ -1,5 +1,5 @@
-use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::fs::{self};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread;
@@ -43,7 +43,7 @@ impl WaydroidVenusConfig {
             .as_deref()
             .unwrap_or_else(|| Path::new(DEFAULT_VENUS_ICD));
         vec![
-            format!("export VN_DEBUG vtest"),
+            "export VN_DEBUG vtest".to_owned(),
             format!("export VTEST_SOCKET_NAME {}", self.socket_guest.display()),
             format!("export VK_DRIVER_FILES {}", icd.display()),
             "export LIBGL_ALWAYS_SOFTWARE 1".to_owned(),
@@ -52,7 +52,7 @@ impl WaydroidVenusConfig {
         ]
     }
 
-    pub fn prop_lines() -> &'static [&'static str] {
+    pub const fn prop_lines() -> &'static [&'static str] {
         &[
             "ro.hardware.vulkan=virtio",
             "ro.hardware.egl=mesa",
@@ -64,7 +64,10 @@ impl WaydroidVenusConfig {
         let entry = format!(
             "lxc.mount.entry = {} {} none bind,create=file,optional 0 0",
             self.socket_host.display(),
-            self.socket_guest.strip_prefix('/').unwrap_or(&self.socket_guest).display()
+            self.socket_guest
+                .strip_prefix('/')
+                .unwrap_or(&self.socket_guest)
+                .display()
         );
         ensure_line(&self.config_session, &entry)
     }
