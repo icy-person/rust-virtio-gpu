@@ -1,6 +1,6 @@
+use crate::virtio_gpu::protocol::CtrlHeader;
 use crate::virtio_gpu::protocol::commands::*;
 use crate::virtio_gpu::protocol::responses::Rect;
-use crate::virtio_gpu::protocol::CtrlHeader;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResourceUnref {
@@ -13,7 +13,11 @@ impl ResourceUnref {
     pub const SIZE: usize = 32;
 
     pub fn new(resource_id: u32) -> Self {
-        Self { header: CtrlHeader::new(CMD_RESOURCE_UNREF), resource_id, padding: 0 }
+        Self {
+            header: CtrlHeader::new(CMD_RESOURCE_UNREF),
+            resource_id,
+            padding: 0,
+        }
     }
 
     pub fn encode_le(self) -> [u8; Self::SIZE] {
@@ -25,9 +29,13 @@ impl ResourceUnref {
     }
 
     pub fn decode_le(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() < Self::SIZE { return None; }
+        if bytes.len() < Self::SIZE {
+            return None;
+        }
         let header = CtrlHeader::decode_le(&bytes[..24])?;
-        if header.typ != CMD_RESOURCE_UNREF { return None; }
+        if header.typ != CMD_RESOURCE_UNREF {
+            return None;
+        }
         Some(Self {
             header,
             resource_id: u32::from_le_bytes(bytes[24..28].try_into().ok()?),
@@ -47,7 +55,11 @@ impl ResourceDetachBacking {
     pub const SIZE: usize = 32;
 
     pub fn new(resource_id: u32) -> Self {
-        Self { header: CtrlHeader::new(CMD_RESOURCE_DETACH_BACKING), resource_id, padding: 0 }
+        Self {
+            header: CtrlHeader::new(CMD_RESOURCE_DETACH_BACKING),
+            resource_id,
+            padding: 0,
+        }
     }
 
     pub fn encode_le(self) -> [u8; Self::SIZE] {
@@ -59,9 +71,13 @@ impl ResourceDetachBacking {
     }
 
     pub fn decode_le(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() < Self::SIZE { return None; }
+        if bytes.len() < Self::SIZE {
+            return None;
+        }
         let header = CtrlHeader::decode_le(&bytes[..24])?;
-        if header.typ != CMD_RESOURCE_DETACH_BACKING { return None; }
+        if header.typ != CMD_RESOURCE_DETACH_BACKING {
+            return None;
+        }
         Some(Self {
             header,
             resource_id: u32::from_le_bytes(bytes[24..28].try_into().ok()?),
@@ -81,7 +97,11 @@ impl GetEdid {
     pub const SIZE: usize = 32;
 
     pub fn new(scanout: u32) -> Self {
-        Self { header: CtrlHeader::new(CMD_GET_EDID), scanout, padding: 0 }
+        Self {
+            header: CtrlHeader::new(CMD_GET_EDID),
+            scanout,
+            padding: 0,
+        }
     }
 
     pub fn encode_le(self) -> [u8; Self::SIZE] {
@@ -93,9 +113,13 @@ impl GetEdid {
     }
 
     pub fn decode_le(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() < Self::SIZE { return None; }
+        if bytes.len() < Self::SIZE {
+            return None;
+        }
         let header = CtrlHeader::decode_le(&bytes[..24])?;
-        if header.typ != CMD_GET_EDID { return None; }
+        if header.typ != CMD_GET_EDID {
+            return None;
+        }
         Some(Self {
             header,
             scanout: u32::from_le_bytes(bytes[24..28].try_into().ok()?),
@@ -115,7 +139,11 @@ impl ResourceAssignUuid {
     pub const SIZE: usize = 32;
 
     pub fn new(resource_id: u32) -> Self {
-        Self { header: CtrlHeader::new(CMD_RESOURCE_ASSIGN_UUID), resource_id, padding: 0 }
+        Self {
+            header: CtrlHeader::new(CMD_RESOURCE_ASSIGN_UUID),
+            resource_id,
+            padding: 0,
+        }
     }
 
     pub fn encode_le(self) -> [u8; Self::SIZE] {
@@ -127,9 +155,13 @@ impl ResourceAssignUuid {
     }
 
     pub fn decode_le(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() < Self::SIZE { return None; }
+        if bytes.len() < Self::SIZE {
+            return None;
+        }
         let header = CtrlHeader::decode_le(&bytes[..24])?;
-        if header.typ != CMD_RESOURCE_ASSIGN_UUID { return None; }
+        if header.typ != CMD_RESOURCE_ASSIGN_UUID {
+            return None;
+        }
         Some(Self {
             header,
             resource_id: u32::from_le_bytes(bytes[24..28].try_into().ok()?),
@@ -201,9 +233,13 @@ impl SetScanoutBlob {
     }
 
     pub fn decode_le(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() < Self::SIZE { return None; }
+        if bytes.len() < Self::SIZE {
+            return None;
+        }
         let header = CtrlHeader::decode_le(&bytes[..24])?;
-        if header.typ != CMD_SET_SCANOUT_BLOB { return None; }
+        if header.typ != CMD_SET_SCANOUT_BLOB {
+            return None;
+        }
         let mut strides = [0; 4];
         let mut offsets = [0; 4];
         for i in 0..4 {
@@ -251,8 +287,18 @@ impl ResourceCreate3D {
         let mut out = [0; Self::SIZE];
         out[..24].copy_from_slice(&self.header.encode_le());
         let values = [
-            self.resource_id, self.target, self.format, self.bind, self.width, self.height,
-            self.depth, self.array_size, self.last_level, self.nr_samples, self.flags, self.padding,
+            self.resource_id,
+            self.target,
+            self.format,
+            self.bind,
+            self.width,
+            self.height,
+            self.depth,
+            self.array_size,
+            self.last_level,
+            self.nr_samples,
+            self.flags,
+            self.padding,
         ];
         for (i, value) in values.iter().enumerate() {
             let s = 24 + i * 4;
@@ -262,9 +308,13 @@ impl ResourceCreate3D {
     }
 
     pub fn decode_le(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() < Self::SIZE { return None; }
+        if bytes.len() < Self::SIZE {
+            return None;
+        }
         let header = CtrlHeader::decode_le(&bytes[..24])?;
-        if header.typ != CMD_RESOURCE_CREATE_3D { return None; }
+        if header.typ != CMD_RESOURCE_CREATE_3D {
+            return None;
+        }
         let read = |n: usize| -> Option<u32> {
             let s = 24 + n * 4;
             Some(u32::from_le_bytes(bytes[s..s + 4].try_into().ok()?))
@@ -312,12 +362,21 @@ impl Box3D {
     }
 
     pub fn decode_le(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() < Self::SIZE { return None; }
+        if bytes.len() < Self::SIZE {
+            return None;
+        }
         let mut values = [0u32; 6];
         for i in 0..6 {
             values[i] = u32::from_le_bytes(bytes[i * 4..i * 4 + 4].try_into().ok()?);
         }
-        Some(Self { x: values[0], y: values[1], z: values[2], w: values[3], h: values[4], d: values[5] })
+        Some(Self {
+            x: values[0],
+            y: values[1],
+            z: values[2],
+            w: values[3],
+            h: values[4],
+            d: values[5],
+        })
     }
 }
 
@@ -348,9 +407,13 @@ impl TransferHost3D {
     }
 
     pub fn decode_le(bytes: &[u8], expected_type: u32) -> Option<Self> {
-        if bytes.len() < Self::SIZE { return None; }
+        if bytes.len() < Self::SIZE {
+            return None;
+        }
         let header = CtrlHeader::decode_le(&bytes[..24])?;
-        if header.typ != expected_type { return None; }
+        if header.typ != expected_type {
+            return None;
+        }
         Some(Self {
             header,
             box_: Box3D::decode_le(&bytes[24..48])?,
@@ -396,7 +459,14 @@ pub struct UpdateCursor {
 impl UpdateCursor {
     pub const SIZE: usize = 56;
     pub fn new(resource_id: u32, pos: CursorPos, hot_x: u32, hot_y: u32) -> Self {
-        Self { header: CtrlHeader::new(CMD_UPDATE_CURSOR), pos, resource_id, hot_x, hot_y, padding: 0 }
+        Self {
+            header: CtrlHeader::new(CMD_UPDATE_CURSOR),
+            pos,
+            resource_id,
+            hot_x,
+            hot_y,
+            padding: 0,
+        }
     }
 
     pub fn encode_le(self) -> [u8; Self::SIZE] {
@@ -419,7 +489,12 @@ pub struct MoveCursor {
 
 impl MoveCursor {
     pub const SIZE: usize = 40;
-    pub fn new(pos: CursorPos) -> Self { Self { header: CtrlHeader::new(CMD_MOVE_CURSOR), pos } }
+    pub fn new(pos: CursorPos) -> Self {
+        Self {
+            header: CtrlHeader::new(CMD_MOVE_CURSOR),
+            pos,
+        }
+    }
     pub fn encode_le(self) -> [u8; Self::SIZE] {
         let mut out = [0; Self::SIZE];
         out[..24].copy_from_slice(&self.header.encode_le());
@@ -452,7 +527,12 @@ mod tests {
         let request = SetScanoutBlob::new(
             1,
             2,
-            Rect { x: 0, y: 0, width: 1920, height: 1080 },
+            Rect {
+                x: 0,
+                y: 0,
+                width: 1920,
+                height: 1080,
+            },
             1920,
             1080,
             1,
@@ -489,7 +569,14 @@ mod tests {
     fn transfer_3d_round_trip() {
         let request = TransferHost3D {
             header: CtrlHeader::new(CMD_TRANSFER_TO_HOST_3D),
-            box_: Box3D { x: 1, y: 2, z: 3, w: 4, h: 5, d: 6 },
+            box_: Box3D {
+                x: 1,
+                y: 2,
+                z: 3,
+                w: 4,
+                h: 5,
+                d: 6,
+            },
             offset: 128,
             resource_id: 9,
             level: 2,

@@ -1395,7 +1395,7 @@ mod tests {
 
         assert_eq!(header.typ, RESP_OK_NODATA);
 
-        let _ =(queue);
+        let _ = (queue);
 
         // ---------------------------------------------------------
         // Build TRANSFER_TO_HOST_2D request.
@@ -1467,7 +1467,7 @@ mod tests {
 
         assert_eq!(header.typ, RESP_OK_NODATA);
 
-        let _ =(queue);
+        let _ = (queue);
 
         // ---------------------------------------------------------
         // Verify resource contents.

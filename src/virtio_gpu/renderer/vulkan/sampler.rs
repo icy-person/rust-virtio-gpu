@@ -1,4 +1,4 @@
-use ash::{vk, Device};
+use ash::{Device, vk};
 
 pub struct Sampler {
     pub sampler: vk::Sampler,
@@ -18,9 +18,7 @@ impl Sampler {
             .compare_enable(false)
             .mipmap_mode(vk::SamplerMipmapMode::LINEAR);
 
-        let sampler = unsafe {
-            device.create_sampler(&info, None)?
-        };
+        let sampler = unsafe { device.create_sampler(&info, None)? };
 
         println!("Sampler created.");
 

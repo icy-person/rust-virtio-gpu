@@ -1,5 +1,5 @@
 use crate::virtio_gpu::protocol::responses::Rect;
-use crate::virtio_gpu::protocol::{CtrlHeader, CMD_TRANSFER_TO_HOST_2D};
+use crate::virtio_gpu::protocol::{CMD_TRANSFER_TO_HOST_2D, CtrlHeader};
 
 /// `VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D` request.
 ///
