@@ -31,7 +31,7 @@ impl VenusRuntime {
     }
 
     pub fn detach_backing(&mut self, resource_id: u32) {
-        self.inner.backend.detach_backing(resource_id);
+        self.inner.detach_backing(resource_id);
     }
 
     fn error_response(request: &CtrlHeader, error: &VenusRuntimeError) -> VenusResponse {
@@ -58,7 +58,6 @@ impl VenusRuntime {
                 }
             }
         };
-
         let response_header = CtrlHeader {
             typ,
             flags: request.flags & FLAG_FENCE,
@@ -67,7 +66,6 @@ impl VenusRuntime {
             ring_idx: request.ring_idx,
             padding: [0; 3],
         };
-
         VenusResponse {
             bytes: response_header.encode_le().to_vec(),
             fence: (request.flags & FLAG_FENCE != 0).then_some(request.fence_id),
@@ -82,13 +80,8 @@ impl VenusRuntime {
                 Err(error) => Ok(Self::error_response(&header, &error)),
             };
         }
-
         let submit = Submit3D::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
-        let ring = if header.flags & FLAG_INFO_RING_IDX != 0 {
-            header.ring_idx
-        } else {
-            0
-        };
+        let ring = if header.flags & FLAG_INFO_RING_IDX != 0 { header.ring_idx } else { 0 };
         let fence_bytes = (submit.num_in_fences as usize)
             .checked_mul(8)
             .ok_or(VenusDispatchError::InvalidRequest)?;
@@ -102,7 +95,6 @@ impl VenusRuntime {
                 &VenusRuntimeError::Dispatch(VenusDispatchError::InvalidRequest),
             ));
         }
-
         let mut translated = request.to_vec();
         for index in 0..submit.num_in_fences as usize {
             let offset = begin + index * 8;
@@ -111,12 +103,10 @@ impl VenusRuntime {
                     .try_into()
                     .map_err(|_| VenusDispatchError::InvalidRequest)?,
             );
-            if let Some(&internal_id) = self.guest_to_internal.get(&(header.ctx_id, ring, guest_id))
-            {
+            if let Some(&internal_id) = self.guest_to_internal.get(&(header.ctx_id, ring, guest_id)) {
                 translated[offset..offset + 8].copy_from_slice(&internal_id.to_le_bytes());
             }
         }
-
         let mut response = match self.inner.dispatch(&translated) {
             Ok(response) => response,
             Err(error) => return Ok(Self::error_response(&header, &error)),
@@ -126,7 +116,6 @@ impl VenusRuntime {
             .insert((header.ctx_id, ring, header.fence_id), internal_fence);
         self.internal_to_guest
             .insert((header.ctx_id, ring, internal_fence), header.fence_id);
-
         if response.bytes.len() >= 16 {
             response.bytes[8..16].copy_from_slice(&header.fence_id.to_le_bytes());
         }
@@ -139,19 +128,18 @@ impl VenusRuntime {
             .poll_fences()
             .into_iter()
             .map(|mut fence| {
-                if let Some(&guest_id) =
-                    self.internal_to_guest
-                        .get(&(fence.ctx_id, fence.ring_idx, fence.fence_id))
+                if let Some(&guest_id) = self
+                    .internal_to_guest
+                    .get(&(fence.ctx_id, fence.ring_idx, fence.fence_id))
                 {
                     fence.fence_id = guest_id;
-                    self.internal_to_guest.remove(&(
-                        fence.ctx_id,
-                        fence.ring_idx,
-                        self.guest_to_internal
-                            .get(&(fence.ctx_id, fence.ring_idx, guest_id))
-                            .copied()
-                            .unwrap_or(0),
-                    ));
+                    if let Some(internal_id) = self
+                        .guest_to_internal
+                        .remove(&(fence.ctx_id, fence.ring_idx, guest_id))
+                    {
+                        self.internal_to_guest
+                            .remove(&(fence.ctx_id, fence.ring_idx, internal_id));
+                    }
                 }
                 fence
             })
