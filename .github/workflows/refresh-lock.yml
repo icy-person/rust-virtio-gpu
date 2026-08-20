@@ -1,0 +1,32 @@
+name: Refresh Venus Lockfile
+
+on:
+  push:
+    branches:
+      - feat/venus-runtime
+
+permissions:
+  contents: write
+
+jobs:
+  lock:
+    if: github.event.head_commit.message != 'chore: refresh Venus lockfile'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Resolve pinned renderer dependency
+        run: cargo update -p virglrenderer --precise 0.1.4
+      - name: Commit lockfile
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Cargo.lock
+          git commit -m 'chore: refresh Venus lockfile'
+          git push origin HEAD:feat/venus-runtime
+      - name: Remove temporary workflow
+        if: always()
+        run: |
+          git rm .github/workflows/refresh-lock.yml
+          git commit -m 'chore: remove temporary lock refresh workflow'
+          git push origin HEAD:feat/venus-runtime

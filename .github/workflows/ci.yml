@@ -19,6 +19,26 @@ jobs:
           components: rustfmt, clippy
       - name: Check formatting
         run: cargo fmt --all -- --check
+      - name: Patch virglrenderer wrapper for Ubuntu 24.04 headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fetch --locked=false
+          SRC=$(find "$HOME/.cargo/registry/src" -path '*/virglrenderer-0.1.3/src/lib.rs' -print -quit)
+          test -n "$SRC"
+          python3 - "$SRC" <<'PY'
+          from pathlib import Path
+          import sys
+          p = Path(sys.argv[1])
+          s = p.read_text()
+          old = '        ffi::virgl_log_level_flags_VIRGL_LOG_LEVEL_SILENT => Level::Error, // Or another appropriate level\n'
+          new = '        4 => return, // VIRGL_LOG_LEVEL_SILENT is absent from Ubuntu 24.04 headers\n'
+          if old not in s:
+              raise SystemExit(f'expected virglrenderer compatibility line not found in {p}')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+          grep -q '4 => return' "$SRC"
       - name: Build
         run: cargo check --all-targets --all-features
       - name: Test

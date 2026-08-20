@@ -107,6 +107,11 @@ pub struct VirtioGpuDevice {
 
     pub renderer: Option<Box<dyn Renderer>>,
     pub display: Option<Display>,
+
+    #[cfg(feature = "virglrenderer-backend")]
+    venus: Option<crate::virtio_gpu::venus::VenusRuntime>,
+    #[cfg(feature = "virglrenderer-backend")]
+    pending_venus_fences: Vec<(u64, u32, u32)>,
 }
 
 impl VirtioGpuDevice {
@@ -140,11 +145,18 @@ impl VirtioGpuDevice {
             scanouts: [Scanout::default(); MAX_SCANOUTS],
             renderer: Some(Box::new(VulkanRenderer::new(1920, 1080))),
             display: None,
+            #[cfg(feature = "virglrenderer-backend")]
+            venus: crate::virtio_gpu::venus::VenusRuntime::new().ok(),
+            #[cfg(feature = "virglrenderer-backend")]
+            pending_venus_fences: Vec::new(),
         }
     }
 
     pub fn process_queue(&mut self) -> Result<(), DeviceError> {
         self.require_ready()?;
+
+        #[cfg(feature = "virglrenderer-backend")]
+        self.poll_venus_fences()?;
 
         loop {
             let chain = {
@@ -171,6 +183,40 @@ impl VirtioGpuDevice {
 
         let header = CtrlHeader::decode_le(&request[..CtrlHeader::SIZE])
             .ok_or(DeviceError::InvalidRequest)?;
+
+        #[cfg(feature = "virglrenderer-backend")]
+        if matches!(
+            header.typ,
+            CMD_GET_CAPSET_INFO
+                | CMD_GET_CAPSET
+                | CMD_CTX_CREATE
+                | CMD_CTX_DESTROY
+                | CMD_CTX_ATTACH_RESOURCE
+                | CMD_CTX_DETACH_RESOURCE
+                | CMD_RESOURCE_CREATE_BLOB
+                | CMD_RESOURCE_UNREF
+                | CMD_RESOURCE_MAP_BLOB
+                | CMD_RESOURCE_UNMAP_BLOB
+                | CMD_RESOURCE_ASSIGN_UUID
+                | CMD_SUBMIT_3D
+        ) {
+            let response = self
+                .venus
+                .as_mut()
+                .ok_or(DeviceError::UnsupportedCommand)?
+                .dispatch(&request)
+                .map_err(|_| DeviceError::UnsupportedCommand)?;
+            self.write_response(&chain, &response.bytes)?;
+            let response_len = response.bytes.len() as u32;
+            if header.flags & crate::virtio_gpu::protocol::commands::FLAG_FENCE != 0 {
+                self.pending_venus_fences
+                    .push((header.fence_id, chain.head as u32, response_len));
+            } else {
+                let queue = self.controlq.as_mut().ok_or(DeviceError::QueueNotReady)?;
+                queue.push_used(chain.head as u32, response_len)?;
+            }
+            return Ok(());
+        }
 
         let response_len = match header.typ {
             CMD_RESOURCE_CREATE_2D => {
@@ -260,6 +306,31 @@ impl VirtioGpuDevice {
 
         queue.push_used(chain.head as u32, response_len)?;
 
+        Ok(())
+    }
+
+    #[cfg(feature = "virglrenderer-backend")]
+    fn poll_venus_fences(&mut self) -> Result<(), DeviceError> {
+        let completed = match self.venus.as_ref() {
+            Some(runtime) => runtime.poll_fences(),
+            None => return Ok(()),
+        };
+        if completed.is_empty() || self.pending_venus_fences.is_empty() {
+            return Ok(());
+        }
+        let mut ready = Vec::new();
+        self.pending_venus_fences.retain(|(fence_id, head, len)| {
+            if completed.iter().any(|f| f.fence_id == *fence_id) {
+                ready.push((*head, *len));
+                false
+            } else {
+                true
+            }
+        });
+        let queue = self.controlq.as_mut().ok_or(DeviceError::QueueNotReady)?;
+        for (head, len) in ready {
+            queue.push_used(head, len)?;
+        }
         Ok(())
     }
 

@@ -6,7 +6,7 @@ use virglrenderer::{
     FenceHandler, ResourceCreateBlob as VirglResourceCreateBlob, VirglRenderer, VirglRendererFlags,
 };
 
-use crate::virtio_gpu::protocol::commands::CAPSET_VENUS;
+use crate::virtio_gpu::protocol::commands::{CAPSET_VENUS, FLAG_FENCE};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CompletedFence {
@@ -57,6 +57,7 @@ impl VirglVenusBackend {
     pub fn new() -> Result<Self, virglrenderer::VirglError> {
         let fence_sink = Arc::new(FenceSink::default());
         let flags = VirglRendererFlags::new()
+            .use_egl(true)
             .use_virgl(true)
             .use_venus(true)
             .use_surfaceless(true)
@@ -133,14 +134,22 @@ impl VirglVenusBackend {
         &self,
         ctx_id: u32,
         flags: u32,
-        ring_idx: u8,
+        _ring_idx: u8,
         fence_id: u64,
         commands: &mut [u8],
         in_fences: &[u64],
     ) -> Result<(), virglrenderer::VirglError> {
         self.renderer.submit_cmd(ctx_id, commands, in_fences)?;
-        self.renderer
-            .context_create_fence(ctx_id, flags, ring_idx as u32, fence_id)?;
+
+        // virglrenderer-rs 0.1.4 exposes the stable/global fence API rather than
+        // the newer context/timeline fence API. Keep the upper-layer timeline
+        // state authoritative and use the renderer's global fence as the host
+        // completion signal until the wrapper exposes context_create_fence.
+        if flags & FLAG_FENCE != 0 {
+            let fence32 =
+                u32::try_from(fence_id).map_err(|_| virglrenderer::VirglError::FenceError)?;
+            self.renderer.create_fence(fence32, ctx_id)?;
+        }
         Ok(())
     }
 
