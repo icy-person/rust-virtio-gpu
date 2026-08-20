@@ -1,0 +1,132 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build Linux x86_64 release
+    runs-on: ubuntu-24.04
+    env:
+      VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.json
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install system dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y libvirglrenderer-dev libvulkan-dev libegl1 mesa-vulkan-drivers vulkan-tools pkg-config clang python3
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: rustfmt,clippy
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      - name: Patch virglrenderer wrapper for Ubuntu 24.04
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fetch
+          SRC=$(find "$HOME/.cargo/registry/src" -path '*/virglrenderer-0.1.3/src/lib.rs' -print -quit)
+          test -n "$SRC"
+          python3 - "$SRC" <<'PY'
+          from pathlib import Path
+          import sys
+          p = Path(sys.argv[1])
+          s = p.read_text()
+          old = '        ffi::virgl_log_level_flags_VIRGL_LOG_LEVEL_SILENT => Level::Error, // Or another appropriate level\n'
+          new = '        4 => return, // VIRGL_LOG_LEVEL_SILENT is absent from Ubuntu 24.04 headers\n'
+          if old not in s:
+              raise SystemExit(f'expected virglrenderer compatibility line not found in {p}')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          grep -q '4 => return' "$SRC"
+      - name: Verify Vulkan
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "$VK_DRIVER_FILES"
+          vulkaninfo --summary 2>/dev/null | head -n 80 || true
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Check
+        run: cargo check --all-targets --all-features
+      - name: Build launcher
+        run: cargo build --release --bin waydroid-venus --all-features
+      - name: Validate launcher
+        run: target/release/waydroid-venus --help
+      - name: Test
+        run: cargo test --all-targets --all-features
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Package release
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME:-nightly}"
+          OUT="release"
+          PKG="rust-virtio-gpu-${VERSION}-x86_64-linux"
+          mkdir -p "$OUT/$PKG"
+          install -m 0755 target/release/waydroid-venus "$OUT/$PKG/waydroid-venus"
+          install -m 0755 tools/waydroid-venus-enable.sh "$OUT/$PKG/waydroid-venus-enable.sh"
+          install -m 0755 tools/waydroid-venus-check.sh "$OUT/$PKG/waydroid-venus-check.sh"
+          install -m 0755 tools/build-virglrenderer-venus.sh "$OUT/$PKG/build-virglrenderer-venus.sh"
+          install -m 0644 tools/waydroid-venus.service "$OUT/$PKG/waydroid-venus.service"
+          install -m 0644 docs/WAYDROID_GAMING.md "$OUT/$PKG/WAYDROID_GAMING.md"
+          install -m 0644 LICENSE "$OUT/$PKG/LICENSE"
+          cat > "$OUT/$PKG/BUILD-INFO.txt" <<EOF
+          Project: icy-person/rust-virtio-gpu
+          Release: ${VERSION}
+          Commit: ${GITHUB_SHA}
+          Target: x86_64-unknown-linux-gnu
+          Rust: $(rustc --version)
+          Built on: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          Features: all
+          EOF
+          tar -C "$OUT" -czf "$OUT/$PKG.tar.gz" "$PKG"
+          sha256sum "$OUT/$PKG.tar.gz" > "$OUT/$PKG.tar.gz.sha256"
+      - name: Upload release bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-virtio-gpu-linux-x86_64
+          path: release/
+          if-no-files-found: error
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-24.04
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download release bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: rust-virtio-gpu-linux-x86_64
+          path: release
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          gh release create "$TAG" release/* --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes
