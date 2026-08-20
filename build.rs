@@ -70,7 +70,23 @@ fn main() {
     }
     generated = generated.replacen(old_transfer, new_transfer, 1);
     generated = generated.replace("let _ = (queue);", "let _ = queue;");
-    fs::write(out_dir.join("device.rs"), generated).expect("failed to write generated device.rs");
+
+    // The core device must be constructible on headless CI and server hosts.
+    // Keep Vulkan as an explicit renderer choice instead of making construction
+    // depend on a working host Vulkan driver.
+    generated = generated.replace(
+        "use crate::virtio_gpu::renderer::{Display, VulkanRenderer};\nuse crate::virtio_gpu::renderer::{Renderer, SoftwareRenderer};",
+        "use crate::virtio_gpu::renderer::{Display, Renderer, SoftwareRenderer};",
+    );
+    let old_renderer = "renderer: Some(Box::new(VulkanRenderer::new(1920, 1080))),";
+    let new_renderer = "renderer: Some(Box::new(SoftwareRenderer::new(1920, 1080))),";
+    if !generated.contains(old_renderer) {
+        panic!("VirtioGpuDevice renderer initialization changed; update build.rs patch");
+    }
+    generated = generated.replacen(old_renderer, new_renderer, 1);
+
+    fs::write(out_dir.join("device.rs"), generated)
+        .expect("failed to write generated device.rs");
 
     let state_source = fs::read_to_string("src/virtio_gpu/venus/state.rs")
         .expect("failed to read src/virtio_gpu/venus/state.rs");
