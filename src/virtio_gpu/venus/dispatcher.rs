@@ -3,12 +3,11 @@ use crate::virtio_gpu::protocol::header::CtrlHeader;
 use crate::virtio_gpu::protocol::requests::blob::{
     MemEntry, ResourceCreateBlob, ResourceMapBlob, ResourceUnmapBlob,
 };
+use crate::virtio_gpu::protocol::requests::capset::{GetCapset, GetCapsetInfo};
 use crate::virtio_gpu::protocol::requests::context::{
     ContextAttachResource, ContextCreate, ContextDestroy, ContextDetachResource,
 };
-use crate::virtio_gpu::protocol::requests::standard::{
-    GetCapset, GetCapsetInfo, ResourceAssignUuid, ResourceUnref,
-};
+use crate::virtio_gpu::protocol::requests::standard::{ResourceAssignUuid, ResourceUnref};
 use crate::virtio_gpu::protocol::requests::submit::Submit3D;
 use crate::virtio_gpu::protocol::responses::{RespMapInfo, RespOkNoData, RespResourceUuid};
 
@@ -162,11 +161,10 @@ impl VenusState {
             CMD_RESOURCE_MAP_BLOB => {
                 let request = ResourceMapBlob::decode_le(raw_request)
                     .ok_or(VenusDispatchError::InvalidRequest)?;
-                let resource = self
-                    .resources
+                self.resources
                     .get_mut(&request.resource_id)
-                    .ok_or(VenusStateError::InvalidResource)?;
-                resource.map(request.offset)?;
+                    .ok_or(VenusStateError::InvalidResource)?
+                    .map(request.offset)?;
 
                 let response = RespMapInfo {
                     header: CtrlHeader {
