@@ -1,8 +1,14 @@
 use crate::virtio_gpu::protocol::commands::*;
 use crate::virtio_gpu::protocol::header::CtrlHeader;
-use crate::virtio_gpu::protocol::requests::blob::{MemEntry, ResourceCreateBlob, ResourceMapBlob, ResourceUnmapBlob};
-use crate::virtio_gpu::protocol::requests::context::{ContextAttachResource, ContextCreate, ContextDestroy, ContextDetachResource};
-use crate::virtio_gpu::protocol::requests::standard::{GetCapset, GetCapsetInfo, ResourceAssignUuid, ResourceUnref};
+use crate::virtio_gpu::protocol::requests::blob::{
+    MemEntry, ResourceCreateBlob, ResourceMapBlob, ResourceUnmapBlob,
+};
+use crate::virtio_gpu::protocol::requests::context::{
+    ContextAttachResource, ContextCreate, ContextDestroy, ContextDetachResource,
+};
+use crate::virtio_gpu::protocol::requests::standard::{
+    GetCapset, GetCapsetInfo, ResourceAssignUuid, ResourceUnref,
+};
 use crate::virtio_gpu::protocol::requests::submit::Submit3D;
 use crate::virtio_gpu::protocol::responses::{RespMapInfo, RespOkNoData, RespResourceUuid};
 
@@ -70,8 +76,6 @@ fn read_entries(bytes: &[u8], count: u32) -> Result<u64, VenusDispatchError> {
 }
 
 fn assign_uuid(resource_id: u32) -> [u8; 16] {
-    // Stable per-resource UUID material. Uniqueness is enforced by resource ID
-    // ownership in VenusState; this is intentionally not a cryptographic UUID.
     let mut x = (resource_id as u64) ^ 0x9e37_79b9_7f4a_7c15;
     let mut out = [0u8; 16];
     for chunk in out.chunks_exact_mut(8) {
@@ -81,50 +85,64 @@ fn assign_uuid(resource_id: u32) -> [u8; 16] {
         x = x.wrapping_mul(0x2545_f491_4f6c_dd1d);
         chunk.copy_from_slice(&x.to_le_bytes());
     }
-    // RFC 4122 variant/version bits make the returned bytes structurally UUID-like.
     out[6] = (out[6] & 0x0f) | 0x40;
     out[8] = (out[8] & 0x3f) | 0x80;
     out
 }
 
 impl VenusState {
-    pub fn dispatch(&mut self, request: &[u8]) -> Result<VenusResponse, VenusDispatchError> {
-        let header = CtrlHeader::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
+    pub fn dispatch(&mut self, raw_request: &[u8]) -> Result<VenusResponse, VenusDispatchError> {
+        let header = CtrlHeader::decode_le(raw_request).ok_or(VenusDispatchError::InvalidRequest)?;
 
         match header.typ {
             CMD_CTX_CREATE => {
-                let request = ContextCreate::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
-                self.create_context(request.header.ctx_id, request.capset_id(), &request.debug_name[..request.nlen.min(64) as usize])?;
+                let request = ContextCreate::decode_le(raw_request)
+                    .ok_or(VenusDispatchError::InvalidRequest)?;
+                let name_len = usize::try_from(request.nlen.min(64))
+                    .map_err(|_| VenusDispatchError::InvalidRequest)?;
+                self.create_context(
+                    request.header.ctx_id,
+                    request.capset_id(),
+                    &request.debug_name[..name_len],
+                )?;
                 Ok(nodata(header))
             }
             CMD_CTX_DESTROY => {
-                let request = ContextDestroy::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
+                let request = ContextDestroy::decode_le(raw_request)
+                    .ok_or(VenusDispatchError::InvalidRequest)?;
                 self.destroy_context(request.header.ctx_id)?;
                 Ok(nodata(header))
             }
             CMD_CTX_ATTACH_RESOURCE => {
-                let request = ContextAttachResource::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
+                let request = ContextAttachResource::decode_le(raw_request)
+                    .ok_or(VenusDispatchError::InvalidRequest)?;
                 self.attach_resource(request.header.ctx_id, request.resource_id)?;
                 Ok(nodata(header))
             }
             CMD_CTX_DETACH_RESOURCE => {
-                let request = ContextDetachResource::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
+                let request = ContextDetachResource::decode_le(raw_request)
+                    .ok_or(VenusDispatchError::InvalidRequest)?;
                 self.detach_resource(request.header.ctx_id, request.resource_id)?;
                 Ok(nodata(header))
             }
             CMD_RESOURCE_CREATE_BLOB => {
-                let request = ResourceCreateBlob::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
+                let request = ResourceCreateBlob::decode_le(raw_request)
+                    .ok_or(VenusDispatchError::InvalidRequest)?;
                 let entry_bytes = request
                     .nr_entries
                     .checked_mul(MemEntry::SIZE as u32)
-                    .ok_or(VenusDispatchError::InvalidRequest)? as usize;
+                    .ok_or(VenusDispatchError::InvalidRequest)?
+                    as usize;
                 let end = ResourceCreateBlob::SIZE
                     .checked_add(entry_bytes)
                     .ok_or(VenusDispatchError::InvalidRequest)?;
-                if request.len() < end {
+                if raw_request.len() < end {
                     return Err(VenusDispatchError::InvalidRequest);
                 }
-                let guest_backing_size = read_entries(&request[end - entry_bytes..end], request.nr_entries)?;
+                let guest_backing_size = read_entries(
+                    &raw_request[ResourceCreateBlob::SIZE..end],
+                    request.nr_entries,
+                )?;
                 self.create_blob(
                     request.resource_id,
                     request.blob_id,
@@ -136,17 +154,20 @@ impl VenusState {
                 Ok(nodata(header))
             }
             CMD_RESOURCE_UNREF => {
-                let request = ResourceUnref::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
+                let request = ResourceUnref::decode_le(raw_request)
+                    .ok_or(VenusDispatchError::InvalidRequest)?;
                 self.unref_resource(request.resource_id)?;
                 Ok(nodata(header))
             }
             CMD_RESOURCE_MAP_BLOB => {
-                let request = ResourceMapBlob::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
+                let request = ResourceMapBlob::decode_le(raw_request)
+                    .ok_or(VenusDispatchError::InvalidRequest)?;
                 let resource = self
                     .resources
                     .get_mut(&request.resource_id)
                     .ok_or(VenusStateError::InvalidResource)?;
-                let offset = resource.map(request.offset)?;
+                resource.map(request.offset)?;
+
                 let response = RespMapInfo {
                     header: CtrlHeader {
                         typ: RESP_OK_MAP_INFO,
@@ -166,11 +187,12 @@ impl VenusState {
                         bytes.extend_from_slice(&response.padding.to_le_bytes());
                         bytes
                     },
-                    fence: (header.flags & FLAG_FENCE != 0).then_some(offset),
+                    fence: (header.flags & FLAG_FENCE != 0).then_some(header.fence_id),
                 })
             }
             CMD_RESOURCE_UNMAP_BLOB => {
-                let request = ResourceUnmapBlob::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
+                let request = ResourceUnmapBlob::decode_le(raw_request)
+                    .ok_or(VenusDispatchError::InvalidRequest)?;
                 self.resources
                     .get_mut(&request.resource_id)
                     .ok_or(VenusStateError::InvalidResource)?
@@ -178,7 +200,8 @@ impl VenusState {
                 Ok(nodata(header))
             }
             CMD_RESOURCE_ASSIGN_UUID => {
-                let request = ResourceAssignUuid::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
+                let request = ResourceAssignUuid::decode_le(raw_request)
+                    .ok_or(VenusDispatchError::InvalidRequest)?;
                 let uuid = assign_uuid(request.resource_id);
                 self.resources
                     .get_mut(&request.resource_id)
@@ -195,20 +218,24 @@ impl VenusState {
                     },
                     uuid,
                 };
-                let mut bytes = Vec::with_capacity(40);
-                bytes.extend_from_slice(&response.header.encode_le());
-                bytes.extend_from_slice(&response.uuid);
                 Ok(VenusResponse {
-                    bytes,
+                    bytes: {
+                        let mut bytes = response.header.encode_le().to_vec();
+                        bytes.extend_from_slice(&response.uuid);
+                        bytes
+                    },
                     fence: (header.flags & FLAG_FENCE != 0).then_some(header.fence_id),
                 })
             }
             CMD_SUBMIT_3D => {
-                let request = Submit3D::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
+                let request = Submit3D::decode_le(raw_request)
+                    .ok_or(VenusDispatchError::InvalidRequest)?;
                 let begin = Submit3D::SIZE;
                 let size = request.size as usize;
-                let end = begin.checked_add(size).ok_or(VenusDispatchError::InvalidRequest)?;
-                if request.len() < end {
+                let end = begin
+                    .checked_add(size)
+                    .ok_or(VenusDispatchError::InvalidRequest)?;
+                if raw_request.len() < end {
                     return Err(VenusDispatchError::InvalidRequest);
                 }
                 let ring = if request.header.flags & FLAG_INFO_RING_IDX != 0 {
@@ -216,17 +243,19 @@ impl VenusState {
                 } else {
                     0
                 };
-                let point = self.submit(request.header.ctx_id, ring, &request[begin..end])?;
+                let point = self.submit(request.header.ctx_id, ring, &raw_request[begin..end])?;
                 let mut response = nodata(header);
                 response.fence = Some(point.value);
                 Ok(response)
             }
             CMD_GET_CAPSET_INFO => {
-                let request = GetCapsetInfo::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
+                let request = GetCapsetInfo::decode_le(raw_request)
+                    .ok_or(VenusDispatchError::InvalidRequest)?;
                 if request.capset_index != 0 {
-                    return Err(VenusDispatchError::State(VenusStateError::UnsupportedCapability));
+                    return Err(VenusDispatchError::State(
+                        VenusStateError::UnsupportedCapability,
+                    ));
                 }
-                let mut bytes = Vec::with_capacity(40);
                 let response_header = CtrlHeader {
                     typ: RESP_OK_CAPSET_INFO,
                     flags: header.flags,
@@ -235,6 +264,7 @@ impl VenusState {
                     ring_idx: header.ring_idx,
                     padding: [0; 3],
                 };
+                let mut bytes = Vec::with_capacity(40);
                 bytes.extend_from_slice(&response_header.encode_le());
                 bytes.extend_from_slice(&CAPSET_VENUS.to_le_bytes());
                 bytes.extend_from_slice(&self.capset_version.to_le_bytes());
@@ -246,9 +276,12 @@ impl VenusState {
                 })
             }
             CMD_GET_CAPSET => {
-                let request = GetCapset::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
+                let request = GetCapset::decode_le(raw_request)
+                    .ok_or(VenusDispatchError::InvalidRequest)?;
                 if request.capset_id != CAPSET_VENUS || request.capset_version == 0 {
-                    return Err(VenusDispatchError::State(VenusStateError::UnsupportedCapability));
+                    return Err(VenusDispatchError::State(
+                        VenusStateError::UnsupportedCapability,
+                    ));
                 }
                 let response_header = CtrlHeader {
                     typ: RESP_OK_CAPSET,
@@ -273,9 +306,6 @@ impl VenusState {
 }
 
 fn venus_capset_payload() -> Vec<u8> {
-    // The capset structure is intentionally versioned and serialized as opaque
-    // bytes here. The renderer/backend must populate the exact Venus capability
-    // structure before advertising a non-zero capset_size.
     Vec::new()
 }
 
@@ -288,7 +318,10 @@ mod tests {
         let mut state = VenusState::new();
         let request = ContextCreate::new(7, CAPSET_VENUS, b"ctx").encode_le();
         let response = state.dispatch(&request).unwrap();
-        assert_eq!(CtrlHeader::decode_le(&response.bytes).unwrap().typ, RESP_OK_NODATA);
+        assert_eq!(
+            CtrlHeader::decode_le(&response.bytes).unwrap().typ,
+            RESP_OK_NODATA
+        );
         assert!(state.contexts.contains_key(&7));
     }
 
@@ -297,7 +330,10 @@ mod tests {
         let mut state = VenusState::new();
         state.create_context(1, CAPSET_VENUS, b"ctx").unwrap();
         let request = Submit3D::new(1, 3).encode_le();
-        assert_eq!(state.dispatch(&request), Err(VenusDispatchError::InvalidRequest));
+        assert_eq!(
+            state.dispatch(&request),
+            Err(VenusDispatchError::InvalidRequest)
+        );
         assert_eq!(state.fences.completed(0), 0);
     }
 }
