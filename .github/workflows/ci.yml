@@ -53,8 +53,13 @@ jobs:
           if command -v vulkaninfo >/dev/null 2>&1; then
             vulkaninfo --summary 2>/dev/null | grep -E 'GPU|deviceName' | head -n 5 || true
           fi
+      - name: Validate Waydroid helper script
+        shell: bash
+        run: bash -n tools/waydroid-venus-enable.sh
       - name: Build
         run: cargo check --all-targets --all-features
+      - name: Build Waydroid Venus launcher
+        run: cargo build --release --bin waydroid-venus --all-features
       - name: Test
         run: cargo test --all-targets --all-features
       - name: Clippy
