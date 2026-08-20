@@ -50,7 +50,6 @@ impl WaydroidVenusConfig {
             "export VN_DEBUG vtest".to_owned(),
             format!("export VTEST_SOCKET_NAME {}", self.socket_guest.display()),
             format!("export VK_DRIVER_FILES {}", icd.display()),
-            "export LIBGL_ALWAYS_SOFTWARE 1".to_owned(),
             "export GALLIUM_DRIVER virpipe".to_owned(),
             "export LIBVA_DRIVER_NAME virtio_gpu".to_owned(),
         ]
@@ -266,7 +265,13 @@ mod tests {
         assert!(config.patch_config_session().unwrap());
         assert!(!config.patch_config_session().unwrap());
         let content = fs::read_to_string(&path).unwrap();
-        assert_eq!(content.matches(".virgl_test").count(), 1);
+        assert_eq!(
+            content
+                .lines()
+                .filter(|line| line.starts_with("lxc.mount.entry = /tmp/.virgl_test "))
+                .count(),
+            1
+        );
         let _ = fs::remove_file(path);
     }
 
