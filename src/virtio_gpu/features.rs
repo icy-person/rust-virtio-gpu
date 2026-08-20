@@ -1,9 +1,8 @@
 use bitflags::bitflags;
 
 bitflags! {
-    /// VirtIO-GPU device-specific feature bits.
-    ///
-    /// Values are defined by the VirtIO GPU specification.
+    /// VirtIO-GPU feature bits, including standard transport features that are
+    /// negotiated through the same 64-bit feature bitmap.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct GpuFeatures: u64 {
         /// 3D / VirGL mode.
@@ -25,6 +24,12 @@ bitflags! {
         /// `blob_alignment` configuration field is valid.
         /// Requires RESOURCE_BLOB.
         const BLOB_ALIGNMENT = 1 << 5;
+
+        /// VirtIO 1.x transport semantics.
+        const VERSION_1 = 1 << 32;
+
+        /// Queue reset is supported when negotiated.
+        const RING_RESET = 1 << 40;
     }
 }
 
@@ -51,31 +56,38 @@ mod tests {
         assert_eq!(GpuFeatures::RESOURCE_BLOB.bits(), 1 << 3);
         assert_eq!(GpuFeatures::CONTEXT_INIT.bits(), 1 << 4);
         assert_eq!(GpuFeatures::BLOB_ALIGNMENT.bits(), 1 << 5);
+        assert_eq!(GpuFeatures::VERSION_1.bits(), 1u64 << 32);
+        assert_eq!(GpuFeatures::RING_RESET.bits(), 1u64 << 40);
     }
 
     #[test]
     fn context_init_requires_virgl() {
         assert!(!GpuFeatures::CONTEXT_INIT.is_valid());
-
         assert!((GpuFeatures::VIRGL | GpuFeatures::CONTEXT_INIT).is_valid());
     }
 
     #[test]
     fn blob_alignment_requires_blob_resources() {
         assert!(!GpuFeatures::BLOB_ALIGNMENT.is_valid());
-
         assert!((GpuFeatures::RESOURCE_BLOB | GpuFeatures::BLOB_ALIGNMENT).is_valid());
     }
 
     #[test]
     fn feature_negotiation_is_intersection() {
-        let offered = GpuFeatures::VIRGL | GpuFeatures::RESOURCE_BLOB;
-
-        let requested = GpuFeatures::VIRGL | GpuFeatures::EDID | GpuFeatures::RESOURCE_BLOB;
-
+        let offered = GpuFeatures::VIRGL | GpuFeatures::RESOURCE_BLOB | GpuFeatures::VERSION_1;
+        let requested =
+            GpuFeatures::VIRGL | GpuFeatures::EDID | GpuFeatures::RESOURCE_BLOB | GpuFeatures::VERSION_1;
         assert_eq!(
             requested.supported_subset(offered),
-            GpuFeatures::VIRGL | GpuFeatures::RESOURCE_BLOB
+            GpuFeatures::VIRGL | GpuFeatures::RESOURCE_BLOB | GpuFeatures::VERSION_1
         );
+    }
+
+    #[test]
+    fn ring_reset_is_independently_negotiable() {
+        let offered = GpuFeatures::VERSION_1 | GpuFeatures::RING_RESET;
+        let requested = GpuFeatures::VERSION_1;
+        assert!(!requested.contains(GpuFeatures::RING_RESET));
+        assert!(offered.contains(GpuFeatures::RING_RESET));
     }
 }
