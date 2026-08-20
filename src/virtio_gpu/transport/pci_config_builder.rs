@@ -1,9 +1,9 @@
+use crate::virtio_gpu::transport::PciConfigSpace;
 use crate::virtio_gpu::transport::pci::{
     PCI_DEVICE_ID_GPU, PCI_VENDOR_ID_VIRTIO, PciTransportError, VIRTIO_PCI_CAP_NOTIFY_CFG,
     VIRTIO_PCI_CAP_PCI_CFG, VirtioPciNotifyCapability, VirtioPciTransport,
 };
 use crate::virtio_gpu::transport::pci_config_space::VirtioPciCfgCapability;
-use crate::virtio_gpu::transport::PciConfigSpace;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PciCfgAccessError {
@@ -62,7 +62,9 @@ fn validate_target(
     transport: &VirtioPciTransport,
     cfg: &VirtioPciCfgCapability,
 ) -> Result<usize, PciCfgAccessError> {
-    let length = cfg.access_length().ok_or(PciCfgAccessError::InvalidLength)?;
+    let length = cfg
+        .access_length()
+        .ok_or(PciCfgAccessError::InvalidLength)?;
     if !cfg.cap.offset.is_multiple_of(length as u32) {
         return Err(PciCfgAccessError::Misaligned);
     }
@@ -74,9 +76,7 @@ fn validate_target(
     let advertised = transport
         .capabilities()
         .iter()
-        .filter(|cap| {
-            cap.bar == bar && cap.cfg_type != VIRTIO_PCI_CAP_PCI_CFG
-        })
+        .filter(|cap| cap.bar == bar && cap.cfg_type != VIRTIO_PCI_CAP_PCI_CFG)
         .any(|cap| {
             offset >= u64::from(cap.offset)
                 && offset
@@ -104,10 +104,7 @@ impl VirtioPciTransport {
         build_pci_config_space(self)
     }
 
-    pub fn pci_cfg_read(
-        &self,
-        cfg: &VirtioPciCfgCapability,
-    ) -> Result<[u8; 4], PciCfgAccessError> {
+    pub fn pci_cfg_read(&self, cfg: &VirtioPciCfgCapability) -> Result<[u8; 4], PciCfgAccessError> {
         let length = validate_target(self, cfg)?;
         let bar = cfg.cap.bar;
         let offset = u64::from(cfg.cap.offset);
@@ -216,7 +213,8 @@ mod tests {
         for _ in 0..32 {
             let cfg_type = config.read(cursor + 3, 1).unwrap() as u8;
             seen_common |= cfg_type == crate::virtio_gpu::transport::pci::VIRTIO_PCI_CAP_COMMON_CFG;
-            seen_shared |= cfg_type == crate::virtio_gpu::transport::pci::VIRTIO_PCI_CAP_SHARED_MEMORY_CFG;
+            seen_shared |=
+                cfg_type == crate::virtio_gpu::transport::pci::VIRTIO_PCI_CAP_SHARED_MEMORY_CFG;
             seen_pci_cfg |= cfg_type == VIRTIO_PCI_CAP_PCI_CFG;
             let next = config.read(cursor + 1, 1).unwrap() as usize;
             if next == 0 {
@@ -235,8 +233,13 @@ mod tests {
         let mut transport = VirtioPciTransport::default();
         transport.initialize_default_capabilities().unwrap();
         let cfg = VirtioPciCfgCapability::new(0, 0x300, 4);
-        transport.pci_cfg_write(&cfg, &[0xde, 0xad, 0xbe, 0xef]).unwrap();
-        assert_eq!(&transport.pci_cfg_read(&cfg).unwrap()[..4], &[0xde, 0xad, 0xbe, 0xef]);
+        transport
+            .pci_cfg_write(&cfg, &[0xde, 0xad, 0xbe, 0xef])
+            .unwrap();
+        assert_eq!(
+            &transport.pci_cfg_read(&cfg).unwrap()[..4],
+            &[0xde, 0xad, 0xbe, 0xef]
+        );
     }
 
     #[test]
