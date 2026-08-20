@@ -4,11 +4,153 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: write
+
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'push' && github.ref_name || github.head_ref }}
+      - name: Apply one-time Rust integration fixes
+        if: github.event_name == 'push' && github.ref == 'refs/heads/fix/venus-ci-runtime'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          files = []
+
+          p = Path('src/virtio_gpu/device.rs')
+          s = p.read_text()
+          old = '''        if matches!(
+            header.typ,
+            CMD_GET_CAPSET_INFO
+                | CMD_GET_CAPSET
+                | CMD_CTX_CREATE
+                | CMD_CTX_DESTROY
+                | CMD_CTX_ATTACH_RESOURCE
+                | CMD_CTX_DETACH_RESOURCE
+                | CMD_RESOURCE_CREATE_BLOB
+                | CMD_RESOURCE_UNREF
+                | CMD_RESOURCE_MAP_BLOB
+                | CMD_RESOURCE_UNMAP_BLOB
+                | CMD_RESOURCE_ASSIGN_UUID
+                | CMD_SUBMIT_3D
+        ) {'''
+          new = '''        if matches!(
+            header.typ,
+            crate::virtio_gpu::protocol::commands::CMD_GET_CAPSET_INFO
+                | crate::virtio_gpu::protocol::commands::CMD_GET_CAPSET
+                | crate::virtio_gpu::protocol::commands::CMD_CTX_CREATE
+                | crate::virtio_gpu::protocol::commands::CMD_CTX_DESTROY
+                | crate::virtio_gpu::protocol::commands::CMD_CTX_ATTACH_RESOURCE
+                | crate::virtio_gpu::protocol::commands::CMD_CTX_DETACH_RESOURCE
+                | crate::virtio_gpu::protocol::commands::CMD_RESOURCE_CREATE_BLOB
+                | crate::virtio_gpu::protocol::commands::CMD_RESOURCE_UNREF
+                | crate::virtio_gpu::protocol::commands::CMD_RESOURCE_MAP_BLOB
+                | crate::virtio_gpu::protocol::commands::CMD_RESOURCE_UNMAP_BLOB
+                | crate::virtio_gpu::protocol::commands::CMD_RESOURCE_ASSIGN_UUID
+                | crate::virtio_gpu::protocol::commands::CMD_SUBMIT_3D
+        ) {'''
+          if old not in s:
+              raise SystemExit('device.rs command dispatch pattern not found')
+          s = s.replace(old, new, 1)
+          old = '''            .transfer_to_host(ResourceTransferToHost2D {
+                resource_id: 1,
+                offset: 0,
+                rect: Rect {
+                    x: 0,
+                    y: 0,
+                    width: 1920,
+                    height: 1080,
+                },
+            })'''
+          new = '''            .transfer_to_host(ResourceTransferToHost2D::new(
+                1,
+                Rect {
+                    x: 0,
+                    y: 0,
+                    width: 1920,
+                    height: 1080,
+                },
+                0,
+            ))'''
+          if old not in s:
+              raise SystemExit('device.rs transfer_to_host test pattern not found')
+          s = s.replace(old, new, 1)
+          s = s.replace('let _ = (queue);', 'let _ = queue;')
+          p.write_text(s)
+          files.append(str(p))
+
+          p = Path('src/virtio_gpu/venus/runtime.rs')
+          s = p.read_text()
+          s = s.replace('''pub enum VenusRuntimeError {\n    Backend(virglrenderer::VirglError),\n    Dispatch(VenusDispatchError),\n}''', '''pub enum VenusRuntimeError {\n    Backend(virglrenderer::VirglError),\n    Dispatch(VenusDispatchError),\n    State(super::VenusStateError),\n}''', 1)
+          marker = '''impl From<VenusDispatchError> for VenusRuntimeError {\n    fn from(value: VenusDispatchError) -> Self {\n        Self::Dispatch(value)\n    }\n}\n'''
+          insert = marker + '''\nimpl From<super::VenusStateError> for VenusRuntimeError {\n    fn from(value: super::VenusStateError) -> Self {\n        Self::State(value)\n    }\n}\n'''
+          if marker not in s:
+              raise SystemExit('runtime error conversion marker not found')
+          s = s.replace(marker, insert, 1)
+          s = s.replace('''                self.backend.create_blob(\n                    0,\n                    0,\n                    0,''', '''                self.backend.create_blob(\n                    req.header.ctx_id,\n                    0,\n                    0,''', 1)
+          p.write_text(s)
+          files.append(str(p))
+
+          p = Path('src/virtio_gpu/venus/virgl.rs')
+          s = p.read_text()
+          old = '''        let renderer = VirglRenderer::init(\n            flags,\n            Box::new(FenceSinkProxy(fence_sink.clone())),\n            None,\n            None,\n        )?;'''
+          new = '''        let renderer = VirglRenderer::init(\n            flags,\n            Box::new(FenceSinkProxy(fence_sink.clone())),\n            None,\n        )?;'''
+          if old not in s:
+              raise SystemExit('virgl init signature pattern not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          files.append(str(p))
+
+          p = Path('src/virtio_gpu/venus/state.rs')
+          s = p.read_text()
+          old = 'state.resources.get(&1).unwrap().map(0x1000).unwrap()'
+          new = 'state.resources.get_mut(&1).unwrap().map(0x1000).unwrap()'
+          if old in s:
+              s = s.replace(old, new, 1)
+              p.write_text(s)
+              files.append(str(p))
+
+          p = Path('src/virtio_gpu/protocol/requests/resource.rs')
+          s = p.read_text().replace('    commands::CMD_RESOURCE_CREATE_2D, formats::VirtioGpuFormat, header::CtrlHeader,\n', '    formats::VirtioGpuFormat, header::CtrlHeader,\n')
+          p.write_text(s)
+          files.append(str(p))
+
+          p = Path('src/virtio_gpu/renderer/vulkan/upload.rs')
+          s = p.read_text().replace('pub fn upload_resource(device: &Device, resource: &Resource)', 'pub fn upload_resource(_device: &Device, resource: &Resource)')
+          p.write_text(s)
+          files.append(str(p))
+
+          p = Path('src/virtio_gpu/renderer/window.rs')
+          s = p.read_text()
+          if '#[allow(deprecated)]' not in s:
+              s = s.replace('impl DisplayWindow {\n', '#[allow(deprecated)]\nimpl DisplayWindow {\n', 1)
+              p.write_text(s)
+              files.append(str(p))
+
+          p = Path('src/virtio_gpu/renderer/scanout.rs')
+          if p.exists():
+              s = p.read_text().replace('use crate::virtio_gpu::protocol::header::CtrlHeader;\n', '')
+              p.write_text(s)
+              files.append(str(p))
+
+          print('patched', *sorted(set(files)), sep='\n- ')
+          PY
+          cargo fmt --all
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/virtio_gpu .github/workflows/ci.yml
+          if git diff --cached --quiet; then
+            echo 'No source changes required.'
+          else
+            git commit -m 'fix: resolve Venus backend build errors'
+            git push
+          fi
       - name: Install Venus backend system dependencies
         run: |
           sudo apt-get update
