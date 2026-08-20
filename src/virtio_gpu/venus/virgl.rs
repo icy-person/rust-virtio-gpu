@@ -69,7 +69,6 @@ impl VirglVenusBackend {
             flags,
             Box::new(FenceSinkProxy(fence_sink.clone())),
             None,
-            None,
         )?;
 
         Ok(Self {
@@ -141,10 +140,6 @@ impl VirglVenusBackend {
     ) -> Result<(), virglrenderer::VirglError> {
         self.renderer.submit_cmd(ctx_id, commands, in_fences)?;
 
-        // virglrenderer-rs 0.1.4 exposes the stable/global fence API rather than
-        // the newer context/timeline fence API. Keep the upper-layer timeline
-        // state authoritative and use the renderer's global fence as the host
-        // completion signal until the wrapper exposes context_create_fence.
         if flags & FLAG_FENCE != 0 {
             let fence32 =
                 u32::try_from(fence_id).map_err(|_| virglrenderer::VirglError::FenceError)?;
