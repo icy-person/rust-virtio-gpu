@@ -1,6 +1,6 @@
 use crate::virtio_gpu::device::{DeviceError, VirtioGpuDevice};
-use crate::virtio_gpu::display::{scanout::Scanout, Display};
-use crate::virtio_gpu::protocol::commands::{RESP_OK_EDID, MAX_SCANOUTS};
+use crate::virtio_gpu::display::{Display, scanout::Scanout};
+use crate::virtio_gpu::protocol::commands::{MAX_SCANOUTS, RESP_OK_EDID};
 use crate::virtio_gpu::protocol::requests::standard::{GetEdid, SetScanoutBlob};
 use crate::virtio_gpu::protocol::responses::RespEdid;
 
@@ -67,12 +67,10 @@ impl VirtioGpuDevice {
         Ok(bytes)
     }
 
-    pub(crate) fn handle_set_scanout_blob(
-        &mut self,
-        request: &[u8],
-    ) -> Result<(), DeviceError> {
+    pub(crate) fn handle_set_scanout_blob(&mut self, request: &[u8]) -> Result<(), DeviceError> {
         let request = SetScanoutBlob::decode_le(request).ok_or(DeviceError::InvalidRequest)?;
-        if request.scanout_id as usize >= MAX_SCANOUTS || request.width == 0 || request.height == 0 {
+        if request.scanout_id as usize >= MAX_SCANOUTS || request.width == 0 || request.height == 0
+        {
             return Err(DeviceError::InvalidResource);
         }
         let resource = self
@@ -99,7 +97,10 @@ impl VirtioGpuDevice {
             height: request.height,
         };
         if self.display.is_none() {
-            self.display = Some(Display::new(request.width as usize, request.height as usize));
+            self.display = Some(Display::new(
+                request.width as usize,
+                request.height as usize,
+            ));
         }
         Ok(())
     }
