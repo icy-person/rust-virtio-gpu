@@ -109,7 +109,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: rust-virtio-gpu-linux-x86_64
-          path: release/
+          path: |
+            release/*.tar.gz
+            release/*.sha256
           if-no-files-found: error
   publish:
     name: Publish GitHub Release
@@ -129,4 +131,4 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
-          gh release create "$TAG" release/* --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes
+          gh release create "$TAG" release/*.tar.gz release/*.sha256 --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes
