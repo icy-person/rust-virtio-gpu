@@ -16,7 +16,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y libvirglrenderer-dev libvulkan-dev mesa-vulkan-drivers pkg-config clang
+          sudo apt-get install -y libvirglrenderer-dev libvulkan-dev libegl1 mesa-vulkan-drivers pkg-config clang
           ICD=$(find /usr/share/vulkan/icd.d -maxdepth 1 -type f -name '*lvp*.json' -print -quit)
           test -n "$ICD"
           echo "VK_DRIVER_FILES=$ICD" >> "$GITHUB_ENV"
