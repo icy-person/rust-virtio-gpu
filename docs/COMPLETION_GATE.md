@@ -10,5 +10,6 @@ A Waydroid release is considered build-complete only when:
 - The Waydroid helper scripts pass `bash -n`.
 - The release launcher responds to `--help`.
 - A release archive and SHA256 checksum can be produced.
+- The latest commit, rather than a stale pull-request merge ref, has a successful Strict Build run.
 
 A hardware-gaming claim additionally requires a real Waydroid Android image with Mesa's virtio/Venus ICD and a real host Vulkan render node; GitHub-hosted CI cannot provide that end-to-end hardware test.
