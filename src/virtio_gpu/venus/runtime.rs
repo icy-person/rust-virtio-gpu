@@ -2,9 +2,7 @@
 
 use crate::virtio_gpu::protocol::commands::*;
 use crate::virtio_gpu::protocol::header::CtrlHeader;
-use crate::virtio_gpu::protocol::requests::blob::{
-    ResourceCreateBlob, ResourceMapBlob, ResourceUnmapBlob,
-};
+use crate::virtio_gpu::protocol::requests::blob::{MemEntry, ResourceCreateBlob, ResourceMapBlob, ResourceUnmapBlob};
 use crate::virtio_gpu::protocol::requests::capset::{GetCapset, GetCapsetInfo};
 use crate::virtio_gpu::protocol::requests::context::{
     ContextAttachResource, ContextCreate, ContextDestroy, ContextDetachResource,
@@ -12,6 +10,7 @@ use crate::virtio_gpu::protocol::requests::context::{
 use crate::virtio_gpu::protocol::requests::standard::{ResourceAssignUuid, ResourceUnref};
 use crate::virtio_gpu::protocol::requests::submit::Submit3D;
 use crate::virtio_gpu::protocol::responses::{RespOkNoData, RespResourceUuid};
+use crate::virtio_gpu::transport::memory::GuestMemory;
 
 use super::virgl::{CompletedFence, VirglVenusBackend};
 use super::{VenusDispatchError, VenusResponse, VenusState};
@@ -106,7 +105,11 @@ impl VenusRuntime {
         }
     }
 
-    pub fn dispatch(&mut self, request: &[u8]) -> Result<VenusResponse, VenusRuntimeError> {
+    pub fn dispatch(
+        &mut self,
+        request: &[u8],
+        guest_memory: &GuestMemory,
+    ) -> Result<VenusResponse, VenusRuntimeError> {
         let header = CtrlHeader::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
         match header.typ {
             CMD_GET_CAPSET_INFO => {
@@ -146,18 +149,21 @@ impl VenusRuntime {
                     CAPSET_VENUS,
                     &req.debug_name[..name_len],
                 )?;
-                self.backend.create_context(
+                if let Err(err) = self.backend.create_context(
                     req.header.ctx_id,
                     req.context_init,
                     std::str::from_utf8(&req.debug_name[..name_len]).ok(),
-                )?;
+                ) {
+                    self.state.contexts.remove(&req.header.ctx_id);
+                    return Err(err.into());
+                }
                 Ok(Self::ok(header))
             }
             CMD_CTX_DESTROY => {
                 let req =
                     ContextDestroy::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
-                self.backend.destroy_context(req.header.ctx_id);
                 self.state.destroy_context(req.header.ctx_id)?;
+                self.backend.destroy_context(req.header.ctx_id);
                 Ok(Self::ok(header))
             }
             CMD_CTX_ATTACH_RESOURCE => {
@@ -172,17 +178,17 @@ impl VenusRuntime {
             CMD_CTX_DETACH_RESOURCE => {
                 let req = ContextDetachResource::decode_le(request)
                     .ok_or(VenusDispatchError::InvalidRequest)?;
-                self.backend
-                    .detach_resource(req.header.ctx_id, req.resource_id);
                 self.state
                     .detach_resource(req.header.ctx_id, req.resource_id)?;
+                self.backend
+                    .detach_resource(req.header.ctx_id, req.resource_id);
                 Ok(Self::ok(header))
             }
             CMD_RESOURCE_CREATE_BLOB => {
                 let req = ResourceCreateBlob::decode_le(request)
                     .ok_or(VenusDispatchError::InvalidRequest)?;
                 let entry_bytes = (req.nr_entries as usize)
-                    .checked_mul(16)
+                    .checked_mul(MemEntry::SIZE)
                     .ok_or(VenusDispatchError::InvalidRequest)?;
                 let end = ResourceCreateBlob::SIZE
                     .checked_add(entry_bytes)
@@ -190,14 +196,18 @@ impl VenusRuntime {
                 if request.len() < end {
                     return Err(VenusDispatchError::InvalidRequest.into());
                 }
-                let guest_size = request[ResourceCreateBlob::SIZE..end]
-                    .chunks_exact(16)
-                    .map(|entry| {
-                        u64::from(u32::from_le_bytes(
-                            entry[8..12].try_into().expect("fixed-size slice"),
-                        ))
-                    })
-                    .sum();
+
+                let mut entries = Vec::with_capacity(req.nr_entries as usize);
+                let mut guest_size = 0u64;
+                for chunk in request[ResourceCreateBlob::SIZE..end].chunks_exact(MemEntry::SIZE) {
+                    let entry = MemEntry::decode_le(chunk)
+                        .ok_or(VenusDispatchError::InvalidRequest)?;
+                    guest_size = guest_size
+                        .checked_add(u64::from(entry.length))
+                        .ok_or(VenusDispatchError::InvalidRequest)?;
+                    entries.push(entry);
+                }
+
                 self.state.create_blob(
                     req.resource_id,
                     req.blob_id,
@@ -206,7 +216,8 @@ impl VenusRuntime {
                     req.blob_flags,
                     guest_size,
                 )?;
-                self.backend.create_blob(
+
+                if let Err(err) = self.backend.create_blob(
                     req.header.ctx_id,
                     0,
                     0,
@@ -215,12 +226,26 @@ impl VenusRuntime {
                     req.blob_flags,
                     req.blob_id,
                     req.size,
-                )?;
+                    guest_memory,
+                    &entries,
+                ) {
+                    self.state.resources.remove(&req.resource_id);
+                    return Err(err.into());
+                }
                 Ok(Self::ok(header))
             }
             CMD_RESOURCE_UNREF => {
                 let req =
                     ResourceUnref::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
+                let resource = self
+                    .state
+                    .resources
+                    .get(&req.resource_id)
+                    .ok_or(VenusStateError::InvalidResource)?;
+                if !resource.attached_contexts.is_empty() {
+                    return Err(VenusStateError::ResourceInUse.into());
+                }
+                self.backend.unref_resource(req.resource_id);
                 self.state.unref_resource(req.resource_id)?;
                 Ok(Self::ok(header))
             }
@@ -230,9 +255,7 @@ impl VenusRuntime {
                 self.state
                     .resources
                     .get_mut(&req.resource_id)
-                    .ok_or(VenusDispatchError::State(
-                        super::VenusStateError::InvalidResource,
-                    ))?
+                    .ok_or(VenusStateError::InvalidResource)?
                     .map(req.offset)?;
                 let mut bytes = Vec::with_capacity(32);
                 bytes.extend_from_slice(
@@ -252,12 +275,11 @@ impl VenusRuntime {
             CMD_RESOURCE_UNMAP_BLOB => {
                 let req = ResourceUnmapBlob::decode_le(request)
                     .ok_or(VenusDispatchError::InvalidRequest)?;
+                self.backend.unmap_resource(req.resource_id)?;
                 self.state
                     .resources
                     .get_mut(&req.resource_id)
-                    .ok_or(VenusDispatchError::State(
-                        super::VenusStateError::InvalidResource,
-                    ))?
+                    .ok_or(VenusStateError::InvalidResource)?
                     .unmap()?;
                 Ok(Self::ok(header))
             }
@@ -278,9 +300,7 @@ impl VenusRuntime {
                 self.state
                     .resources
                     .get_mut(&req.resource_id)
-                    .ok_or(VenusDispatchError::State(
-                        super::VenusStateError::InvalidResource,
-                    ))?
+                    .ok_or(VenusStateError::InvalidResource)?
                     .assign_uuid(uuid)?;
                 let response = RespResourceUuid {
                     header: CtrlHeader {
@@ -325,22 +345,26 @@ impl VenusRuntime {
                 } else {
                     0
                 };
-                let _point = self.state.submit(
+                let point = self.state.submit(
                     req.header.ctx_id,
                     ring,
                     &in_fences,
                     &request[command_begin..command_end],
                 )?;
                 let mut commands = request[command_begin..command_end].to_vec();
-                self.backend.submit(
+                if let Err(err) = self.backend.submit(
                     req.header.ctx_id,
                     req.header.flags,
                     ring,
-                    req.header.fence_id,
+                    point.id,
                     &mut commands,
                     &in_fences,
-                )?;
-                Ok(Self::ok(header))
+                ) {
+                    return Err(err.into());
+                }
+                let mut response = Self::ok(header);
+                response.fence = Some(point.id);
+                Ok(response)
             }
             _ => Err(VenusDispatchError::UnsupportedCommand.into()),
         }
@@ -350,5 +374,3 @@ impl VenusRuntime {
         self.backend.poll()
     }
 }
-
-// Runtime bridge is intentionally feature-gated and owns the real virglrenderer instance.
