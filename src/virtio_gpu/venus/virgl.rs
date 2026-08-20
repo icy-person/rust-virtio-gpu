@@ -6,7 +6,7 @@ use virglrenderer::{
     FenceHandler, ResourceCreateBlob as VirglResourceCreateBlob, VirglRenderer, VirglRendererFlags,
 };
 
-use crate::virtio_gpu::protocol::commands::CAPSET_VENUS;
+use crate::virtio_gpu::protocol::commands::{CAPSET_VENUS, FLAG_FENCE};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CompletedFence {
@@ -57,6 +57,7 @@ impl VirglVenusBackend {
     pub fn new() -> Result<Self, virglrenderer::VirglError> {
         let fence_sink = Arc::new(FenceSink::default());
         let flags = VirglRendererFlags::new()
+            .use_egl(true)
             .use_virgl(true)
             .use_venus(true)
             .use_surfaceless(true)
@@ -139,8 +140,10 @@ impl VirglVenusBackend {
         in_fences: &[u64],
     ) -> Result<(), virglrenderer::VirglError> {
         self.renderer.submit_cmd(ctx_id, commands, in_fences)?;
-        self.renderer
-            .context_create_fence(ctx_id, flags, ring_idx as u32, fence_id)?;
+        if flags & FLAG_FENCE != 0 {
+            self.renderer
+                .context_create_fence(ctx_id, flags, ring_idx as u32, fence_id)?;
+        }
         Ok(())
     }
 
