@@ -1,0 +1,54 @@
+name: Venus Runtime Patcher
+
+on:
+  push:
+    branches:
+      - feat/venus-runtime
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/venus-runtime
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Patch device
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/virtio_gpu/device.rs')
+          s = p.read_text()
+          if 'pending_venus_fences' not in s:
+              s = s.replace('    pub display: Option<Display>,\n', '    pub display: Option<Display>,\n\n    #[cfg(feature = "virglrenderer-backend")]\n    venus: Option<crate::virtio_gpu::venus::VenusRuntime>,\n    #[cfg(feature = "virglrenderer-backend")]\n    pending_venus_fences: Vec<(u64, u32, u32)>,\n', 1)
+              s = s.replace('            display: None,\n        }', '            display: None,\n            #[cfg(feature = "virglrenderer-backend")]\n            venus: crate::virtio_gpu::venus::VenusRuntime::new().ok(),\n            #[cfg(feature = "virglrenderer-backend")]\n            pending_venus_fences: Vec::new(),\n        }', 1)
+              marker = '        let header = CtrlHeader::decode_le(&request[..CtrlHeader::SIZE])\n            .ok_or(DeviceError::InvalidRequest)?;\n'
+              inject = '''        let header = CtrlHeader::decode_le(&request[..CtrlHeader::SIZE])\n            .ok_or(DeviceError::InvalidRequest)?;\n\n        #[cfg(feature = "virglrenderer-backend")]\n        if matches!(header.typ, CMD_GET_CAPSET_INFO | CMD_GET_CAPSET | CMD_CTX_CREATE | CMD_CTX_DESTROY | CMD_CTX_ATTACH_RESOURCE | CMD_CTX_DETACH_RESOURCE | CMD_RESOURCE_CREATE_BLOB | CMD_RESOURCE_UNREF | CMD_RESOURCE_MAP_BLOB | CMD_RESOURCE_UNMAP_BLOB | CMD_RESOURCE_ASSIGN_UUID | CMD_SUBMIT_3D) {\n            let response = self.venus.as_mut().ok_or(DeviceError::UnsupportedCommand)?.dispatch(&request).map_err(|_| DeviceError::UnsupportedCommand)?;\n            self.write_response(&chain, &response.bytes)?;\n            let response_len = response.bytes.len() as u32;\n            if header.flags & crate::virtio_gpu::protocol::commands::FLAG_FENCE != 0 {\n                self.pending_venus_fences.push((header.fence_id, chain.head as u32, response_len));\n            } else {\n                let queue = self.controlq.as_mut().ok_or(DeviceError::QueueNotReady)?;\n                queue.push_used(chain.head as u32, response_len)?;\n            }\n            return Ok(());\n        }\n'''
+              if marker not in s: raise SystemExit('marker not found')
+              s = s.replace(marker, inject, 1)
+              marker2 = '    pub fn process_queue(&mut self) -> Result<(), DeviceError> {\n        self.require_ready()?;\n'
+              repl2 = '    pub fn process_queue(&mut self) -> Result<(), DeviceError> {\n        self.require_ready()?;\n\n        #[cfg(feature = "virglrenderer-backend")]\n        self.poll_venus_fences()?;\n'
+              if marker2 not in s: raise SystemExit('queue marker not found')
+              s = s.replace(marker2, repl2, 1)
+              marker3 = '    pub fn resource_mut(&mut self, id: u32) -> Option<&mut Resource> {\n'
+              helper = '''    #[cfg(feature = "virglrenderer-backend")]\n    fn poll_venus_fences(&mut self) -> Result<(), DeviceError> {\n        let completed = match self.venus.as_ref() {\n            Some(runtime) => runtime.poll_fences(),\n            None => return Ok(()),\n        };\n        if completed.is_empty() || self.pending_venus_fences.is_empty() {\n            return Ok(());\n        }\n        let mut ready = Vec::new();\n        self.pending_venus_fences.retain(|(fence_id, head, len)| {\n            if completed.iter().any(|f| f.fence_id == *fence_id) {\n                ready.push((*head, *len));\n                false\n            } else {\n                true\n            }\n        });\n        let queue = self.controlq.as_mut().ok_or(DeviceError::QueueNotReady)?;\n        for (head, len) in ready {\n            queue.push_used(head, len)?;\n        }\n        Ok(())\n    }\n\n'''
+              if marker3 not in s: raise SystemExit('resource marker not found')
+              s = s.replace(marker3, helper + marker3, 1)
+              p.write_text(s)
+          PY
+          cargo fmt --all
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/virtio_gpu/device.rs
+          if ! git diff --cached --quiet; then git commit -m 'feat: connect Venus runtime to VirtIO-GPU device'; git push origin HEAD:feat/venus-runtime; fi
+      - name: Remove patcher from branch
+        if: ${{ always() }}
+        run: |
+          git rm .github/workflows/venus-runtime-patcher.yml
+          git commit -m 'chore: remove temporary Venus runtime patcher'
+          git push origin HEAD:feat/venus-runtime
