@@ -129,6 +129,10 @@ impl VirglVenusBackend {
             .collect()
     }
 
+    fn backend_io_error() -> virglrenderer::VirglError {
+        virglrenderer::VirglError::IoError(std::io::Error::from_raw_os_error(14))
+    }
+
     pub fn create_blob(
         &self,
         ctx_id: u32,
@@ -149,12 +153,11 @@ impl VirglVenusBackend {
             size,
         };
 
-        let mut iovecs = if entries.is_empty() {
+        let iovecs = if entries.is_empty() {
             Vec::new()
         } else {
-            self.make_iovecs(memory, entries).map_err(|_| {
-                virglrenderer::VirglError::IoError(std::io::Error::from_raw_os_error(14))
-            })?
+            self.make_iovecs(memory, entries)
+                .map_err(|_| Self::backend_io_error())?
         };
 
         let resource = self.renderer.create_blob(
@@ -182,9 +185,9 @@ impl VirglVenusBackend {
         memory: &GuestMemory,
         entries: &[MemEntry],
     ) -> Result<(), virglrenderer::VirglError> {
-        let mut iovecs = self.make_iovecs(memory, entries).map_err(|_| {
-            virglrenderer::VirglError::IoError(std::io::Error::from_raw_os_error(14))
-        })?;
+        let mut iovecs = self
+            .make_iovecs(memory, entries)
+            .map_err(|_| Self::backend_io_error())?;
         self.renderer.attach_backing(resource_id, &mut iovecs)?;
         self.backings
             .lock()
