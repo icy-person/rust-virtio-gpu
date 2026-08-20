@@ -6,7 +6,7 @@ use rust_virtio_gpu::waydroid::WaydroidVenusConfig;
 
 fn usage() {
     eprintln!(
-        "Usage: waydroid-venus [--server PATH] [--rendernode PATH] [--icd PATH] [--config PATH] [--init-env PATH] [--prop PATH]... [--start] [--setup]"
+        "Usage: waydroid-venus [--server PATH] [--rendernode PATH] [--host-icd PATH] [--icd PATH] [--config PATH] [--init-env PATH] [--prop PATH]... [--setup] [--start]"
     );
 }
 
@@ -21,6 +21,9 @@ fn main() -> io::Result<()> {
             "--server" => config.server = PathBuf::from(next_value(&mut args, "--server")?),
             "--rendernode" => {
                 config.render_node = Some(PathBuf::from(next_value(&mut args, "--rendernode")?))
+            }
+            "--host-icd" => {
+                config.host_vulkan_icd = Some(PathBuf::from(next_value(&mut args, "--host-icd")?))
             }
             "--icd" => {
                 config.vulkan_icd = Some(PathBuf::from(next_value(&mut args, "--icd")?))
