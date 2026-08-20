@@ -119,10 +119,9 @@ impl VenusRuntime {
                 let req =
                     GetCapsetInfo::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
                 if req.capset_index != 0 {
-                    return Err(VenusDispatchError::State(
-                        VenusStateError::UnsupportedCapability,
-                    )
-                    .into());
+                    return Err(
+                        VenusDispatchError::State(VenusStateError::UnsupportedCapability).into(),
+                    );
                 }
                 Ok(self.capset_info(header))
             }
@@ -130,10 +129,9 @@ impl VenusRuntime {
                 let req =
                     GetCapset::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
                 if req.capset_id != CAPSET_VENUS || req.capset_version == 0 {
-                    return Err(VenusDispatchError::State(
-                        VenusStateError::UnsupportedCapability,
-                    )
-                    .into());
+                    return Err(
+                        VenusDispatchError::State(VenusStateError::UnsupportedCapability).into(),
+                    );
                 }
                 Ok(self.capset(header, req.capset_version))
             }
@@ -141,10 +139,9 @@ impl VenusRuntime {
                 let req =
                     ContextCreate::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
                 if !req.is_venus() {
-                    return Err(VenusDispatchError::State(
-                        VenusStateError::UnsupportedCapability,
-                    )
-                    .into());
+                    return Err(
+                        VenusDispatchError::State(VenusStateError::UnsupportedCapability).into(),
+                    );
                 }
                 let name_len = req.nlen.min(64) as usize;
                 self.state.create_context(
