@@ -8,6 +8,12 @@ impl VirtioGpuDevice {
             .resource_mut(resource_id)
             .ok_or(DeviceError::InvalidResource)?;
         resource.backing.clear();
+
+        #[cfg(feature = "virglrenderer-backend")]
+        if let Some(runtime) = self.venus.as_mut() {
+            runtime.backend.detach_backing(resource_id);
+        }
+
         Ok(())
     }
 
@@ -33,15 +39,13 @@ impl VirtioGpuDevice {
         edid[17] = 1;
         edid[18] = 1;
         edid[19] = 4;
-        edid[21] = ((resource.width as f32 / 96.0).max(1.0)).round() as u8;
-        edid[22] = ((resource.height as f32 / 96.0).max(1.0)).round() as u8;
+        edid[21] = ((resource.width as u64 * 254 / 10 / 96).clamp(1, 255)) as u8;
+        edid[22] = ((resource.height as u64 * 254 / 10 / 96).clamp(1, 255)) as u8;
         edid[23] = 0x78;
         edid[24] = 0x0a;
         edid[25] = 0xcf;
         edid[26] = 0x74;
         edid[27] = 0xa3;
-        edid[56..58].copy_from_slice(&resource.width.min(4095).to_le_bytes()[..2]);
-        edid[58..60].copy_from_slice(&resource.height.min(4095).to_le_bytes()[..2]);
         edid[126] = 0;
         edid[127] = 0u8.wrapping_sub(
             edid[..127]
@@ -65,12 +69,10 @@ impl VirtioGpuDevice {
         Ok(bytes)
     }
 
-    pub(crate) fn handle_set_scanout_blob(
-        &mut self,
-        request: &[u8],
-    ) -> Result<(), DeviceError> {
+    pub(crate) fn handle_set_scanout_blob(&mut self, request: &[u8]) -> Result<(), DeviceError> {
         let request = SetScanoutBlob::decode_le(request).ok_or(DeviceError::InvalidRequest)?;
-        if request.scanout_id as usize >= MAX_SCANOUTS || request.width == 0 || request.height == 0 {
+        if request.scanout_id as usize >= MAX_SCANOUTS || request.width == 0 || request.height == 0
+        {
             return Err(DeviceError::InvalidResource);
         }
         let resource = self
@@ -97,7 +99,10 @@ impl VirtioGpuDevice {
             height: request.height,
         };
         if self.display.is_none() {
-            self.display = Some(Display::new(request.width as usize, request.height as usize));
+            self.display = Some(Display::new(
+                request.width as usize,
+                request.height as usize,
+            ));
         }
         Ok(())
     }

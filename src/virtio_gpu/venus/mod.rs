@@ -8,8 +8,17 @@ pub mod state {
 }
 
 #[cfg(feature = "virglrenderer-backend")]
-#[allow(unused_imports)]
-pub mod runtime;
+#[path = "runtime.rs"]
+mod runtime_impl;
+
+#[cfg(feature = "virglrenderer-backend")]
+pub mod runtime {
+    pub use super::runtime_impl::VenusRuntimeError;
+    pub use super::runtime_wrapper::VenusRuntime;
+}
+
+#[cfg(feature = "virglrenderer-backend")]
+mod runtime_wrapper;
 
 #[cfg(feature = "virglrenderer-backend")]
 pub mod virgl;
