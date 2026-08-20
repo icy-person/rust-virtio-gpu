@@ -1,0 +1,130 @@
+name: Build Mesa Android Venus
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build-x86_64:
+    name: Mesa android16-qpr2-release / x86_64 / virtio Venus
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      MESA_REF: android16-qpr2-release
+      ANDROID_API: 35
+      NDK_VERSION: r27c
+      NDK_DIR: ${{ github.workspace }}/android-ndk-r27c
+    steps:
+      - name: Install build dependencies
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            bison flex gettext git ninja-build meson pkg-config python3 python3-pip \
+            patchelf libdrm-dev libexpat1-dev zlib1g-dev
+
+      - name: Checkout Mesa android16-qpr2-release
+        run: |
+          set -euxo pipefail
+          git clone --depth 1 --branch "$MESA_REF" \
+            https://android.googlesource.com/platform/external/mesa3d.git mesa
+          cd mesa
+          git rev-parse HEAD
+
+      - name: Download Android NDK r27c
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 4 \
+            -o /tmp/ndk.zip \
+            https://dl.google.com/android/repository/android-ndk-r27c-linux.zip
+          unzip -q /tmp/ndk.zip -d "$GITHUB_WORKSPACE"
+          test -x "$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android35-clang"
+
+      - name: Configure Mesa for Android x86_64 Venus
+        working-directory: mesa
+        run: |
+          set -euxo pipefail
+          cat > android-x86_64.ini <<EOF
+          [binaries]
+          ar = '$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
+          c = ['$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android35-clang']
+          cpp = ['$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android35-clang++', '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '-static-libstdc++']
+          c_ld = 'lld'
+          cpp_ld = 'lld'
+          strip = '$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
+
+          [host_machine]
+          system = 'android'
+          cpu_family = 'x86_64'
+          cpu = 'x86_64'
+          endian = 'little'
+          EOF
+
+          meson setup build-android-x86_64 \
+            --cross-file android-x86_64.ini \
+            --buildtype=release \
+            -Dplatforms=android \
+            -Dplatform-sdk-version=$ANDROID_API \
+            -Dandroid-stub=true \
+            -Dandroid-libbacktrace=disabled \
+            -Dcpp_rtti=false \
+            -Dbuild-tests=false \
+            -Degl=disabled \
+            -Dgbm=disabled \
+            -Dgallium-drivers= \
+            -Dvulkan-drivers=virtio \
+            -Dallow-fallback-for=libdrm \
+            -Dtools= \
+            -Dvideo-codecs=
+
+      - name: Build Mesa Venus
+        working-directory: mesa
+        run: |
+          set -euxo pipefail
+          meson compile -C build-android-x86_64
+
+      - name: Locate and validate VirtIO Vulkan driver
+        working-directory: mesa
+        run: |
+          set -euxo pipefail
+          DRIVER=$(find build-android-x86_64 -type f -name 'libvulkan_virtio.so' -print -quit)
+          test -n "$DRIVER"
+          mkdir -p "$GITHUB_WORKSPACE/artifact/vendor/lib64/hw"
+          cp "$DRIVER" "$GITHUB_WORKSPACE/artifact/vendor/lib64/hw/vulkan.virtio.so"
+          patchelf --set-soname libvulkan_virtio.so "$GITHUB_WORKSPACE/artifact/vendor/lib64/hw/vulkan.virtio.so"
+
+          echo '=== ELF ==='
+          file "$GITHUB_WORKSPACE/artifact/vendor/lib64/hw/vulkan.virtio.so"
+          readelf -d "$GITHUB_WORKSPACE/artifact/vendor/lib64/hw/vulkan.virtio.so" | grep -E 'SONAME|NEEDED' || true
+          echo '=== HMI ==='
+          readelf -Ws "$GITHUB_WORKSPACE/artifact/vendor/lib64/hw/vulkan.virtio.so" | \
+            grep -E 'HAL_MODULE_INFO_SYM|HMI' || true
+          echo '=== Mesa/Venus markers ==='
+          strings "$GITHUB_WORKSPACE/artifact/vendor/lib64/hw/vulkan.virtio.so" | \
+            grep -E 'Virtio-GPU Venus|VK_MESA_venus_protocol|Mesa 3D' | head -20 || true
+
+      - name: Generate build metadata
+        run: |
+          set -euxo pipefail
+          cat > artifact/BUILD_INFO.txt <<EOF
+          source=https://android.googlesource.com/platform/external/mesa3d/+/refs/heads/$MESA_REF
+          mesa_ref=$MESA_REF
+          android_api=$ANDROID_API
+          ndk=$NDK_VERSION
+          arch=x86_64
+          driver=virtio
+          artifact=vendor/lib64/hw/vulkan.virtio.so
+          EOF
+
+      - name: Upload Mesa Venus artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mesa-android16-qpr2-venus-x86_64
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 14
