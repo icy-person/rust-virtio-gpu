@@ -45,6 +45,13 @@ fn main() {
     }
     generated = generated.replacen(old_dispatch, new_dispatch, 1);
 
+    let old_dispatch_call = ".dispatch(&request)";
+    let new_dispatch_call = ".dispatch(&request, &self.memory)";
+    if !generated.contains(old_dispatch_call) {
+        panic!("Venus dispatch call changed; update build.rs patch");
+    }
+    generated = generated.replacen(old_dispatch_call, new_dispatch_call, 1);
+
     let old_transfer = r#"            .transfer_to_host(ResourceTransferToHost2D {
                 resource_id: 1,
                 offset: 0,
@@ -85,7 +92,8 @@ fn main() {
     }
     generated = generated.replacen(old_renderer, new_renderer, 1);
 
-    fs::write(out_dir.join("device.rs"), generated).expect("failed to write generated device.rs");
+    fs::write(out_dir.join("device.rs"), generated)
+        .expect("failed to write generated device.rs");
 
     let state_source = fs::read_to_string("src/virtio_gpu/venus/state.rs")
         .expect("failed to read src/virtio_gpu/venus/state.rs");
