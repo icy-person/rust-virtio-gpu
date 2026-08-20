@@ -5,7 +5,6 @@ fn main() {
     println!("cargo:rerun-if-changed=src/virtio_gpu/venus/state.rs");
 
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR missing"));
-
     let source = fs::read_to_string("src/virtio_gpu/device.rs")
         .expect("failed to read src/virtio_gpu/device.rs");
     let mut generated = source;
@@ -34,6 +33,11 @@ fn main() {
                 | crate::virtio_gpu::protocol::commands::CMD_CTX_ATTACH_RESOURCE
                 | crate::virtio_gpu::protocol::commands::CMD_CTX_DETACH_RESOURCE
                 | crate::virtio_gpu::protocol::commands::CMD_RESOURCE_CREATE_BLOB
+                | crate::virtio_gpu::protocol::commands::CMD_RESOURCE_ATTACH_BACKING
+                | crate::virtio_gpu::protocol::commands::CMD_RESOURCE_DETACH_BACKING
+                | crate::virtio_gpu::protocol::commands::CMD_RESOURCE_CREATE_3D
+                | crate::virtio_gpu::protocol::commands::CMD_TRANSFER_TO_HOST_3D
+                | crate::virtio_gpu::protocol::commands::CMD_TRANSFER_FROM_HOST_3D
                 | crate::virtio_gpu::protocol::commands::CMD_RESOURCE_UNREF
                 | crate::virtio_gpu::protocol::commands::CMD_RESOURCE_MAP_BLOB
                 | crate::virtio_gpu::protocol::commands::CMD_RESOURCE_UNMAP_BLOB
@@ -71,7 +75,6 @@ fn main() {
     generated = generated.replacen(old_transfer, new_transfer, 1);
     generated = generated.replace("let _ = (queue);", "let _ = queue;");
 
-    // The core device must be constructible on headless CI and server hosts.
     generated = generated.replace(
         "use crate::virtio_gpu::renderer::{Display, VulkanRenderer};\nuse crate::virtio_gpu::renderer::{Renderer, SoftwareRenderer};",
         "use crate::virtio_gpu::renderer::{Display, Renderer, SoftwareRenderer};",
@@ -110,6 +113,13 @@ fn main() {
         panic!("VirtioGpuDevice constructor end changed; update build.rs patch");
     }
     generated = generated.replacen(old_ctor_end, new_ctor_end, 1);
+
+    let old_poll = "let completed = match self.venus.as_ref() {\n            Some(runtime) => runtime.poll_fences(),";
+    let new_poll = "let completed = match self.venus.as_mut() {\n            Some(runtime) => runtime.poll_fences(),";
+    if !generated.contains(old_poll) {
+        panic!("Venus fence polling changed; update build.rs patch");
+    }
+    generated = generated.replacen(old_poll, new_poll, 1);
 
     fs::write(out_dir.join("device.rs"), generated).expect("failed to write generated device.rs");
 
