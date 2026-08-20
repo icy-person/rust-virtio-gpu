@@ -104,7 +104,10 @@ impl VirtioPciTransport {
         build_pci_config_space(self)
     }
 
-    pub fn pci_cfg_read(&self, cfg: &VirtioPciCfgCapability) -> Result<[u8; 4], PciCfgAccessError> {
+    pub fn pci_cfg_read(
+        &self,
+        cfg: &VirtioPciCfgCapability,
+    ) -> Result<[u8; 4], PciCfgAccessError> {
         let length = validate_target(self, cfg)?;
         let bar = cfg.cap.bar;
         let offset = u64::from(cfg.cap.offset);
@@ -142,7 +145,9 @@ impl VirtioPciTransport {
             u64::from_le_bytes(raw)
         };
 
-        Ok(value.to_le_bytes())
+        let mut out = [0u8; 4];
+        out[..length].copy_from_slice(&value.to_le_bytes()[..length]);
+        Ok(out)
     }
 
     pub fn pci_cfg_write(
