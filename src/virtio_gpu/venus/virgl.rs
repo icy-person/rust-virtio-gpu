@@ -128,8 +128,7 @@ impl VirglVenusBackend {
             .map(|entry| {
                 let ptr = memory.as_mut_ptr(
                     GuestAddress::new(entry.addr),
-                    usize::try_from(entry.length)
-                        .map_err(|_| GuestMemoryError::AddressOverflow)?,
+                    usize::try_from(entry.length).map_err(|_| GuestMemoryError::AddressOverflow)?,
                 )?;
                 Ok(Iovec {
                     base: ptr.cast(),
@@ -163,10 +162,7 @@ impl VirglVenusBackend {
             .next_fence_id
             .lock()
             .expect("virgl fence allocator poisoned");
-        let mut local_to_internal = self
-            .fence_map
-            .lock()
-            .expect("virgl fence map poisoned");
+        let mut local_to_internal = self.fence_map.lock().expect("virgl fence map poisoned");
         for _ in 0..u32::MAX {
             let candidate = *next;
             *next = next.wrapping_add(1).max(1);
@@ -182,11 +178,7 @@ impl VirglVenusBackend {
         Err(virglrenderer::VirglError::FenceError)
     }
 
-    fn translate_input_fences(
-        &self,
-        ctx_id: u32,
-        in_fences: &[u64],
-    ) -> Vec<u32> {
+    fn translate_input_fences(&self, ctx_id: u32, in_fences: &[u64]) -> Vec<u32> {
         let map = self
             .internal_to_local
             .lock()
