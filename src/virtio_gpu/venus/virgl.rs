@@ -146,8 +146,8 @@ impl VirglVenusBackend {
         // state authoritative and use the renderer's global fence as the host
         // completion signal until the wrapper exposes context_create_fence.
         if flags & FLAG_FENCE != 0 {
-            let fence32 = u32::try_from(fence_id)
-                .map_err(|_| virglrenderer::VirglError::FenceError)?;
+            let fence32 =
+                u32::try_from(fence_id).map_err(|_| virglrenderer::VirglError::FenceError)?;
             self.renderer.create_fence(fence32, ctx_id)?;
         }
         Ok(())
