@@ -122,7 +122,8 @@ impl VirglVenusBackend {
             .map(|entry| {
                 let ptr = memory.as_mut_ptr(
                     GuestAddress::new(entry.addr),
-                    usize::try_from(entry.length).map_err(|_| GuestMemoryError::AddressOverflow)?,
+                    usize::try_from(entry.length)
+                        .map_err(|_| GuestMemoryError::AddressOverflow)?,
                 )?;
                 Ok(Iovec {
                     base: ptr.cast(),
@@ -268,7 +269,10 @@ impl VirglVenusBackend {
             .remove(&resource_id);
     }
 
-    pub fn map_resource(&self, resource_id: u32) -> Result<(u64, u32), virglrenderer::VirglError> {
+    pub fn map_resource(
+        &self,
+        resource_id: u32,
+    ) -> Result<(u64, u32), virglrenderer::VirglError> {
         let (_ptr, size) = self.renderer.map(resource_id)?;
         let map_info = *self
             .map_info
@@ -336,15 +340,16 @@ impl VirglVenusBackend {
         &self,
         ctx_id: u32,
         flags: u32,
-        ring_idx: u8,
+        _ring_idx: u8,
         fence_id: u64,
         commands: &mut [u8],
         in_fences: &[u64],
     ) -> Result<(), virglrenderer::VirglError> {
         self.renderer.submit_cmd(ctx_id, commands, in_fences)?;
         if flags & FLAG_FENCE != 0 {
-            self.renderer
-                .context_create_fence(ctx_id, flags, ring_idx as u32, fence_id)?;
+            let fence_id = u32::try_from(fence_id)
+                .map_err(|_| virglrenderer::VirglError::FenceError)?;
+            self.renderer.create_fence(fence_id, ctx_id)?;
         }
         Ok(())
     }
