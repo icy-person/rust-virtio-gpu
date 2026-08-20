@@ -20,6 +20,7 @@ use super::{VenusDispatchError, VenusResponse, VenusState};
 pub enum VenusRuntimeError {
     Backend(virglrenderer::VirglError),
     Dispatch(VenusDispatchError),
+    State(super::VenusStateError),
 }
 
 impl From<virglrenderer::VirglError> for VenusRuntimeError {
@@ -31,6 +32,12 @@ impl From<virglrenderer::VirglError> for VenusRuntimeError {
 impl From<VenusDispatchError> for VenusRuntimeError {
     fn from(value: VenusDispatchError) -> Self {
         Self::Dispatch(value)
+    }
+}
+
+impl From<super::VenusStateError> for VenusRuntimeError {
+    fn from(value: super::VenusStateError) -> Self {
+        Self::State(value)
     }
 }
 
@@ -200,7 +207,7 @@ impl VenusRuntime {
                     guest_size,
                 )?;
                 self.backend.create_blob(
-                    0,
+                    req.header.ctx_id,
                     0,
                     0,
                     req.resource_id,
@@ -318,7 +325,7 @@ impl VenusRuntime {
                 } else {
                     0
                 };
-                let point = self.state.submit(
+                let _point = self.state.submit(
                     req.header.ctx_id,
                     ring,
                     &in_fences,
@@ -333,9 +340,7 @@ impl VenusRuntime {
                     &mut commands,
                     &in_fences,
                 )?;
-                let mut response = Self::ok(header);
-                response.fence = Some(point.id);
-                Ok(response)
+                Ok(Self::ok(header))
             }
             _ => Err(VenusDispatchError::UnsupportedCommand.into()),
         }
