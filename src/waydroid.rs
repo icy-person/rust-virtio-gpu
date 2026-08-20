@@ -79,13 +79,14 @@ impl WaydroidVenusConfig {
     }
 
     pub fn patch_config_session(&self) -> io::Result<bool> {
+        let guest_socket = self
+            .socket_guest
+            .strip_prefix(Path::new("/"))
+            .unwrap_or(&self.socket_guest);
         let entry = format!(
             "lxc.mount.entry = {} {} none bind,create=file,optional 0 0",
             self.socket_host.display(),
-            self.socket_guest
-                .strip_prefix('/')
-                .unwrap_or(&self.socket_guest)
-                .display()
+            guest_socket.display()
         );
         ensure_line(&self.config_session, &entry)
     }
@@ -94,7 +95,7 @@ impl WaydroidVenusConfig {
         let Some(path) = self.discovered_init_environ() else {
             return Ok(false);
         };
-        let mut content = fs::read_to_string(path)?;
+        let mut content = fs::read_to_string(&path)?;
         let mut changed = false;
         if !content.contains("on init") {
             content.push_str("\non init\n");
@@ -107,7 +108,7 @@ impl WaydroidVenusConfig {
             }
         }
         if changed {
-            fs::write(path, content)?;
+            fs::write(&path, content)?;
         }
         Ok(changed)
     }
