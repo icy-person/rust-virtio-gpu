@@ -1,4 +1,6 @@
-use crate::virtio_gpu::protocol::commands::RESP_OK_EDID;
+use crate::virtio_gpu::device::{DeviceError, VirtioGpuDevice};
+use crate::virtio_gpu::display::{scanout::Scanout, Display};
+use crate::virtio_gpu::protocol::commands::{RESP_OK_EDID, MAX_SCANOUTS};
 use crate::virtio_gpu::protocol::requests::standard::{GetEdid, SetScanoutBlob};
 use crate::virtio_gpu::protocol::responses::RespEdid;
 
