@@ -1,4 +1,4 @@
-use ash::{vk, Device};
+use ash::{Device, vk};
 
 pub struct Image {
     pub image: vk::Image,
@@ -6,12 +6,7 @@ pub struct Image {
 }
 
 impl Image {
-    pub fn new(
-        device: &Device,
-        width: u32,
-        height: u32,
-    ) -> Result<Self, vk::Result> {
-
+    pub fn new(device: &Device, width: u32, height: u32) -> Result<Self, vk::Result> {
         let info = vk::ImageCreateInfo::default()
             .image_type(vk::ImageType::TYPE_2D)
             .format(vk::Format::B8G8R8A8_UNORM)
@@ -32,9 +27,7 @@ impl Image {
             .sharing_mode(vk::SharingMode::EXCLUSIVE)
             .initial_layout(vk::ImageLayout::UNDEFINED);
 
-        let image = unsafe {
-            device.create_image(&info, None)?
-        };
+        let image = unsafe { device.create_image(&info, None)? };
 
         println!("VkImage created.");
 
@@ -51,15 +44,10 @@ impl Image {
                     .layer_count(1),
             );
 
-        let view = unsafe {
-            device.create_image_view(&view_info, None)?
-        };
+        let view = unsafe { device.create_image_view(&view_info, None)? };
 
         println!("Image View created.");
 
-        Ok(Self {
-            image,
-            view,
-        })
+        Ok(Self { image, view })
     }
 }

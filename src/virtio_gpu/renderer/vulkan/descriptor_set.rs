@@ -1,4 +1,4 @@
-use ash::{vk, Device};
+use ash::{Device, vk};
 
 use super::{DescriptorPool, DescriptorSetLayout};
 
@@ -12,16 +12,13 @@ impl DescriptorSet {
         layout: &DescriptorSetLayout,
         pool: &DescriptorPool,
     ) -> Result<Self, vk::Result> {
-
         let layouts = [layout.layout];
 
         let info = vk::DescriptorSetAllocateInfo::default()
             .descriptor_pool(pool.pool)
             .set_layouts(&layouts);
 
-        let set = unsafe {
-            device.allocate_descriptor_sets(&info)?
-        }[0];
+        let set = unsafe { device.allocate_descriptor_sets(&info)? }[0];
 
         println!("Descriptor Set allocated.");
 

@@ -1,11 +1,11 @@
 use crate::virtio_gpu::features::GpuFeatures;
 use crate::virtio_gpu::protocol::commands::{
-    BLOB_FLAG_USE_CROSS_DEVICE, BLOB_FLAG_USE_MAPPABLE, BLOB_FLAG_USE_SHAREABLE,
-    BLOB_MEM_GUEST, BLOB_MEM_HOST3D, BLOB_MEM_HOST3D_GUEST, FLAG_FENCE, FLAG_INFO_RING_IDX,
+    BLOB_FLAG_USE_CROSS_DEVICE, BLOB_FLAG_USE_MAPPABLE, BLOB_FLAG_USE_SHAREABLE, BLOB_MEM_GUEST,
+    BLOB_MEM_HOST3D, BLOB_MEM_HOST3D_GUEST, FLAG_FENCE, FLAG_INFO_RING_IDX,
 };
 use crate::virtio_gpu::protocol::formats::VirtioGpuFormat;
 use crate::virtio_gpu::protocol::responses::Rect;
-use crate::virtio_gpu::protocol::{CtrlHeader, CONTEXT_INIT_CAPSET_ID_MASK};
+use crate::virtio_gpu::protocol::{CONTEXT_INIT_CAPSET_ID_MASK, CtrlHeader};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ValidationError {
@@ -116,7 +116,10 @@ pub fn validate_header(
     Ok(())
 }
 
-pub fn validate_context_init(context_init: u32, supported_capsets: &[u32]) -> Result<(), ValidationError> {
+pub fn validate_context_init(
+    context_init: u32,
+    supported_capsets: &[u32],
+) -> Result<(), ValidationError> {
     let capset_id = context_init & CONTEXT_INIT_CAPSET_ID_MASK;
 
     if capset_id == 0 {
@@ -144,8 +147,7 @@ pub fn validate_blob(
         _ => return Err(ValidationError::InvalidBlobMemory),
     }
 
-    let known_flags =
-        BLOB_FLAG_USE_MAPPABLE | BLOB_FLAG_USE_SHAREABLE | BLOB_FLAG_USE_CROSS_DEVICE;
+    let known_flags = BLOB_FLAG_USE_MAPPABLE | BLOB_FLAG_USE_SHAREABLE | BLOB_FLAG_USE_CROSS_DEVICE;
     if blob_flags & !known_flags != 0 {
         return Err(ValidationError::InvalidBlobFlags);
     }
@@ -168,9 +170,7 @@ pub fn validate_blob(
         }
     }
 
-    if matches!(blob_mem, BLOB_MEM_GUEST | BLOB_MEM_HOST3D_GUEST)
-        && entry_bytes < size
-    {
+    if matches!(blob_mem, BLOB_MEM_GUEST | BLOB_MEM_HOST3D_GUEST) && entry_bytes < size {
         return Err(ValidationError::BlobBackingTooSmall);
     }
 
@@ -184,17 +184,19 @@ mod tests {
 
     #[test]
     fn rectangle_bounds_are_checked_without_overflow() {
-        assert!(validate_rect(
-            100,
-            100,
-            Rect {
-                x: 90,
-                y: 90,
-                width: 10,
-                height: 10,
-            }
-        )
-        .is_ok());
+        assert!(
+            validate_rect(
+                100,
+                100,
+                Rect {
+                    x: 90,
+                    y: 90,
+                    width: 10,
+                    height: 10,
+                }
+            )
+            .is_ok()
+        );
 
         assert_eq!(
             validate_rect(
@@ -229,11 +231,10 @@ mod tests {
 
     #[test]
     fn context_capability_is_checked() {
-        assert!(validate_context_init(
-            CAPSET_VENUS & CONTEXT_INIT_CAPSET_ID_MASK,
-            &[CAPSET_VENUS]
-        )
-        .is_ok());
+        assert!(
+            validate_context_init(CAPSET_VENUS & CONTEXT_INIT_CAPSET_ID_MASK, &[CAPSET_VENUS])
+                .is_ok()
+        );
 
         assert_eq!(
             validate_context_init(99, &[CAPSET_VENUS]),
