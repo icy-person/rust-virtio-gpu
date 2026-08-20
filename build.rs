@@ -34,8 +34,6 @@ fn main() {
                 | crate::virtio_gpu::protocol::commands::CMD_CTX_ATTACH_RESOURCE
                 | crate::virtio_gpu::protocol::commands::CMD_CTX_DETACH_RESOURCE
                 | crate::virtio_gpu::protocol::commands::CMD_RESOURCE_CREATE_BLOB
-                | crate::virtio_gpu::protocol::commands::CMD_RESOURCE_ATTACH_BACKING
-                | crate::virtio_gpu::protocol::commands::CMD_RESOURCE_DETACH_BACKING
                 | crate::virtio_gpu::protocol::commands::CMD_RESOURCE_CREATE_3D
                 | crate::virtio_gpu::protocol::commands::CMD_TRANSFER_TO_HOST_3D
                 | crate::virtio_gpu::protocol::commands::CMD_TRANSFER_FROM_HOST_3D
@@ -49,6 +47,45 @@ fn main() {
         panic!("device.rs dispatch block changed; update build.rs patch");
     }
     generated = generated.replacen(old_dispatch, new_dispatch, 1);
+
+    let old_header_anchor = r#"        let header = CtrlHeader::decode_le(&request[..CtrlHeader::SIZE])
+            .ok_or(DeviceError::InvalidRequest)?;
+"#;
+    let standard_route = r#"
+
+        // Keep classic 2D/scanout resource commands out of the Venus dispatcher.
+        match header.typ {
+            crate::virtio_gpu::protocol::commands::CMD_RESOURCE_ATTACH_BACKING => {
+                let req = ResourceAttachBacking::decode(&request)
+                    .ok_or(DeviceError::InvalidRequest)?;
+                self.attach_backing(req)?;
+                let bytes = RespOkNoData::new().encode_le();
+                self.write_response(&chain, &bytes)?;
+                let queue = self.controlq.as_mut().ok_or(DeviceError::QueueNotReady)?;
+                queue.push_used(chain.head as u32, bytes.len() as u32)?;
+                return Ok(());
+            }
+            crate::virtio_gpu::protocol::commands::CMD_TRANSFER_TO_HOST_2D => {
+                let req = ResourceTransferToHost2D::decode(&request)
+                    .ok_or(DeviceError::InvalidRequest)?;
+                self.transfer_to_host(req)?;
+                let bytes = RespOkNoData::new().encode_le();
+                self.write_response(&chain, &bytes)?;
+                let queue = self.controlq.as_mut().ok_or(DeviceError::QueueNotReady)?;
+                queue.push_used(chain.head as u32, bytes.len() as u32)?;
+                return Ok(());
+            }
+            _ => {}
+        }
+"#;
+    if !generated.contains(old_header_anchor) {
+        panic!("device.rs command header decode changed; update build.rs patch");
+    }
+    generated = generated.replacen(
+        old_header_anchor,
+        &format!("{}{}", old_header_anchor, standard_route),
+        1,
+    );
 
     let old_transfer = r#"            .transfer_to_host(ResourceTransferToHost2D {
                 resource_id: 1,
@@ -74,6 +111,45 @@ fn main() {
         panic!("device.rs transfer test block changed; update build.rs patch");
     }
     generated = generated.replacen(old_transfer, new_transfer, 1);
+
+    // The headless display pipeline test uses an 800x600 resource; keep its
+    // transfer and scanout rectangles inside that resource.
+    let full_rect_old = r#"        // انتقال از Guest Memory به Resource
+        device
+            .transfer_to_host(ResourceTransferToHost2D {
+                resource_id: 1,
+                offset: 0,
+                rect: Rect {
+                    x: 0,
+                    y: 0,
+                    width: 1920,
+                    height: 1080,
+                },
+            })
+            .unwrap();"#;
+    let full_rect_new = r#"        // انتقال از Guest Memory به Resource
+        device
+            .transfer_to_host(ResourceTransferToHost2D::new(
+                1,
+                Rect {
+                    x: 0,
+                    y: 0,
+                    width: 800,
+                    height: 600,
+                },
+                0,
+            ))
+            .unwrap();"#;
+    if !generated.contains(full_rect_old) {
+        panic!("full display pipeline transfer block changed; update build.rs patch");
+    }
+    generated = generated.replacen(full_rect_old, full_rect_new, 1);
+    generated = generated.replacen(
+        ".set_scanout(ResourceSetScanout {\n                scanout_id: 0,\n                resource_id: 1,\n                rect: [0, 0, 1920, 1080],\n            })",
+        ".set_scanout(ResourceSetScanout {\n                scanout_id: 0,\n                resource_id: 1,\n                rect: [0, 0, 800, 600],\n            })",
+        1,
+    );
+
     generated = generated.replace("let _ = (queue);", "let _ = queue;");
 
     generated = generated.replace(
@@ -126,7 +202,7 @@ fn main() {
                 return Err(DeviceError::UnsupportedCommand);
             }
         };"#;
-    let new_standard_tail = r#"            CMD_RESOURCE_DETACH_BACKING => {
+    let new_standard_tail = r#"            crate::virtio_gpu::protocol::commands::CMD_RESOURCE_DETACH_BACKING => {
                 let resource_id = u32::from_le_bytes(
                     request[24..28].try_into().map_err(|_| DeviceError::InvalidRequest)?,
                 );
@@ -136,13 +212,13 @@ fn main() {
                 bytes.len() as u32
             }
 
-            CMD_GET_EDID => {
+            crate::virtio_gpu::protocol::commands::CMD_GET_EDID => {
                 let bytes = self.handle_get_edid(&request)?;
                 self.write_response(&chain, &bytes)?;
                 bytes.len() as u32
             }
 
-            CMD_SET_SCANOUT_BLOB => {
+            crate::virtio_gpu::protocol::commands::CMD_SET_SCANOUT_BLOB => {
                 self.handle_set_scanout_blob(&request)?;
                 let bytes = RespOkNoData::new().encode_le();
                 self.write_response(&chain, &bytes)?;
@@ -157,24 +233,6 @@ fn main() {
         panic!("device.rs standard command tail changed; update build.rs patch");
     }
     generated = generated.replacen(old_standard_tail, new_standard_tail, 1);
-
-    // Bare identifiers in match arms can be interpreted as local bindings in
-    // generated code. Qualify these command constants explicitly so they are
-    // always patterns over the wire command type.
-    for command in [
-        "CMD_RESOURCE_DETACH_BACKING",
-        "CMD_GET_EDID",
-        "CMD_SET_SCANOUT_BLOB",
-    ] {
-        let bare = format!("            {command} => {{");
-        let qualified =
-            format!("            crate::virtio_gpu::protocol::commands::{command} => {{");
-        generated = generated.replace(&bare, &qualified);
-    }
-
-    generated.push_str(
-        "\ninclude!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/src/virtio_gpu/device_ext.rs\"));\n",
-    );
 
     fs::write(out_dir.join("device.rs"), generated).expect("failed to write generated device.rs");
 
