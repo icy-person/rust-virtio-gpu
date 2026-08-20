@@ -126,8 +126,7 @@ impl VirglVenusBackend {
             .map(|entry| {
                 let ptr = memory.as_mut_ptr(
                     GuestAddress::new(entry.addr),
-                    usize::try_from(entry.length)
-                        .map_err(|_| GuestMemoryError::AddressOverflow)?,
+                    usize::try_from(entry.length).map_err(|_| GuestMemoryError::AddressOverflow)?,
                 )?;
                 Ok(Iovec {
                     base: ptr.cast(),
@@ -290,10 +289,7 @@ impl VirglVenusBackend {
             .remove(&resource_id);
     }
 
-    pub fn map_resource(
-        &self,
-        resource_id: u32,
-    ) -> Result<(u64, u32), virglrenderer::VirglError> {
+    pub fn map_resource(&self, resource_id: u32) -> Result<(u64, u32), virglrenderer::VirglError> {
         let (_ptr, size) = self.renderer.map(resource_id)?;
         let map_info = *self
             .map_info
