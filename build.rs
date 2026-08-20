@@ -158,6 +158,21 @@ fn main() {
     }
     generated = generated.replacen(old_standard_tail, new_standard_tail, 1);
 
+    // Bare identifiers in match arms can be interpreted as local bindings in
+    // generated code. Qualify these command constants explicitly so they are
+    // always patterns over the wire command type.
+    for command in [
+        "CMD_RESOURCE_DETACH_BACKING",
+        "CMD_GET_EDID",
+        "CMD_SET_SCANOUT_BLOB",
+    ] {
+        let bare = format!("            {command} => {{");
+        let qualified = format!(
+            "            crate::virtio_gpu::protocol::commands::{command} => {{"
+        );
+        generated = generated.replace(&bare, &qualified);
+    }
+
     generated.push_str(
         "\ninclude!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/src/virtio_gpu/device_ext.rs\"));\n",
     );
