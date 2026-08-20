@@ -1,0 +1,47 @@
+name: Strict Build
+
+on:
+  push:
+    branches:
+      - feat/complete-waydroid-venus
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvirglrenderer-dev libvulkan-dev libegl1 mesa-vulkan-drivers pkg-config clang
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt,clippy
+      - name: Patch virglrenderer compatibility
+        run: |
+          set -euo pipefail
+          cargo fetch
+          SRC=$(find "$HOME/.cargo/registry/src" -path '*/virglrenderer-0.1.3/src/lib.rs' -print -quit)
+          test -n "$SRC"
+          python3 - "$SRC" <<'PY'
+          from pathlib import Path
+          import sys
+          p = Path(sys.argv[1])
+          s = p.read_text()
+          old = '        ffi::virgl_log_level_flags_VIRGL_LOG_LEVEL_SILENT => Level::Error, // Or another appropriate level\n'
+          new = '        4 => return, // VIRGL_LOG_LEVEL_SILENT is absent from Ubuntu 24.04 headers\n'
+          if old not in s:
+              raise SystemExit('virglrenderer compatibility pattern changed')
+          p.write_text(s.replace(old, new, 1))
+          PY
+      - name: Verify source and tests
+        run: bash tools/verify-build.sh
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-virtio-gpu-waydroid-venus-x86_64
+          path: release/
