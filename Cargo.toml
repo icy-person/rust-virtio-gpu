@@ -14,4 +14,9 @@ winit = "0.30"
 pollster = "0.4"
 bytemuck = { version = "1.20", features = ["derive"] }
 ash = "0.38"
-virglrenderer = { version = "0.1.5", optional = true }
+# 0.1.6 currently fails to compile against Ubuntu 24.04's virglrenderer
+# headers because its Rust wrapper references symbols that its generated
+# virglrenderer-sys bindings do not expose.  0.1.4 is the last release with
+# the API surface used by this project and is compatible with the packaged
+# virglrenderer development library.
+virglrenderer = { version = "=0.1.4", optional = true }
