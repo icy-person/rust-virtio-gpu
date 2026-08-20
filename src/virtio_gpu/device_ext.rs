@@ -1,9 +1,9 @@
 use crate::virtio_gpu::device::{DeviceError, VirtioGpuDevice};
+use crate::virtio_gpu::display::scanout::Scanout;
 use crate::virtio_gpu::protocol::commands::RESP_OK_EDID;
 use crate::virtio_gpu::protocol::requests::standard::{GetEdid, SetScanoutBlob};
-use crate::virtio_gpu::protocol::responses::{RespEdid, MAX_SCANOUTS};
+use crate::virtio_gpu::protocol::responses::{MAX_SCANOUTS, RespEdid};
 use crate::virtio_gpu::renderer::Display;
-use crate::virtio_gpu::display::scanout::Scanout;
 
 impl VirtioGpuDevice {
     pub(crate) fn handle_detach_backing(&mut self, resource_id: u32) -> Result<(), DeviceError> {
