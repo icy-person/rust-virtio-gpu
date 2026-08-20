@@ -270,7 +270,7 @@ impl VenusState {
             CMD_GET_CAPSET_INFO => {
                 let request = GetCapsetInfo::decode_le(raw_request)
                     .ok_or(VenusDispatchError::InvalidRequest)?;
-                if request.capset_index != 0 {
+                if request.capset_index != 0 || self.capset_size == 0 {
                     return Err(VenusDispatchError::State(
                         VenusStateError::UnsupportedCapability,
                     ));
@@ -297,7 +297,11 @@ impl VenusState {
             CMD_GET_CAPSET => {
                 let request =
                     GetCapset::decode_le(raw_request).ok_or(VenusDispatchError::InvalidRequest)?;
-                if request.capset_id != CAPSET_VENUS || request.capset_version == 0 {
+                if request.capset_id != CAPSET_VENUS
+                    || request.capset_version == 0
+                    || request.capset_version > self.capset_version
+                    || self.capset_payload.is_empty()
+                {
                     return Err(VenusDispatchError::State(
                         VenusStateError::UnsupportedCapability,
                     ));
@@ -310,10 +314,9 @@ impl VenusState {
                     ring_idx: header.ring_idx,
                     padding: [0; 3],
                 };
-                let payload = venus_capset_payload();
-                let mut bytes = Vec::with_capacity(24 + payload.len());
+                let mut bytes = Vec::with_capacity(24 + self.capset_payload.len());
                 bytes.extend_from_slice(&response_header.encode_le());
-                bytes.extend_from_slice(&payload);
+                bytes.extend_from_slice(&self.capset_payload);
                 Ok(VenusResponse {
                     bytes,
                     fence: (header.flags & FLAG_FENCE != 0).then_some(header.fence_id),
@@ -322,10 +325,6 @@ impl VenusState {
             _ => Err(VenusDispatchError::UnsupportedCommand),
         }
     }
-}
-
-fn venus_capset_payload() -> Vec<u8> {
-    Vec::new()
 }
 
 #[cfg(test)]
@@ -366,5 +365,20 @@ mod tests {
         let response = state.dispatch(&bytes).unwrap();
         assert_eq!(response.fence, Some(1));
         assert_eq!(state.fences.completed(), 0);
+    }
+
+    #[test]
+    fn capset_requires_real_payload() {
+        let mut state = VenusState::new();
+        let request = GetCapset::new(CAPSET_VENUS, 1).encode_le();
+        assert_eq!(
+            state.dispatch(&request),
+            Err(VenusDispatchError::State(
+                VenusStateError::UnsupportedCapability,
+            ))
+        );
+        state.set_capset(1, vec![1, 2, 3, 4]);
+        let response = state.dispatch(&request).unwrap();
+        assert_eq!(&response.bytes[24..], &[1, 2, 3, 4]);
     }
 }
