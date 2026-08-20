@@ -3,6 +3,7 @@ name: Strict Build
 on:
   push:
     branches:
+      - main
       - feat/complete-waydroid-venus
   pull_request:
 
