@@ -2,7 +2,9 @@
 
 use crate::virtio_gpu::protocol::commands::*;
 use crate::virtio_gpu::protocol::header::CtrlHeader;
-use crate::virtio_gpu::protocol::requests::blob::{MemEntry, ResourceCreateBlob, ResourceMapBlob, ResourceUnmapBlob};
+use crate::virtio_gpu::protocol::requests::blob::{
+    MemEntry, ResourceCreateBlob, ResourceMapBlob, ResourceUnmapBlob,
+};
 use crate::virtio_gpu::protocol::requests::capset::{GetCapset, GetCapsetInfo};
 use crate::virtio_gpu::protocol::requests::context::{
     ContextAttachResource, ContextCreate, ContextDestroy, ContextDetachResource,
@@ -200,8 +202,8 @@ impl VenusRuntime {
                 let mut entries = Vec::with_capacity(req.nr_entries as usize);
                 let mut guest_size = 0u64;
                 for chunk in request[ResourceCreateBlob::SIZE..end].chunks_exact(MemEntry::SIZE) {
-                    let entry = MemEntry::decode_le(chunk)
-                        .ok_or(VenusDispatchError::InvalidRequest)?;
+                    let entry =
+                        MemEntry::decode_le(chunk).ok_or(VenusDispatchError::InvalidRequest)?;
                     guest_size = guest_size
                         .checked_add(u64::from(entry.length))
                         .ok_or(VenusDispatchError::InvalidRequest)?;

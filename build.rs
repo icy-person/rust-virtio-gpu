@@ -92,8 +92,7 @@ fn main() {
     }
     generated = generated.replacen(old_renderer, new_renderer, 1);
 
-    fs::write(out_dir.join("device.rs"), generated)
-        .expect("failed to write generated device.rs");
+    fs::write(out_dir.join("device.rs"), generated).expect("failed to write generated device.rs");
 
     let state_source = fs::read_to_string("src/virtio_gpu/venus/state.rs")
         .expect("failed to read src/virtio_gpu/venus/state.rs");
