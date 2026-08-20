@@ -45,16 +45,21 @@ impl From<super::VenusStateError> for VenusRuntimeError {
 pub struct VenusRuntime {
     pub state: VenusState,
     pub backend: VirglVenusBackend,
+    guest_memory: GuestMemory,
 }
 
 impl VenusRuntime {
-    pub fn new() -> Result<Self, VenusRuntimeError> {
+    pub fn new(guest_memory: GuestMemory) -> Result<Self, VenusRuntimeError> {
         let backend = VirglVenusBackend::new()?;
         let (version, size) = backend.get_capset_info();
         let mut state = VenusState::new();
         state.capset_version = version;
         state.capset_size = size;
-        Ok(Self { state, backend })
+        Ok(Self {
+            state,
+            backend,
+            guest_memory,
+        })
     }
 
     fn ok(header: CtrlHeader) -> VenusResponse {
@@ -107,11 +112,7 @@ impl VenusRuntime {
         }
     }
 
-    pub fn dispatch(
-        &mut self,
-        request: &[u8],
-        guest_memory: &GuestMemory,
-    ) -> Result<VenusResponse, VenusRuntimeError> {
+    pub fn dispatch(&mut self, request: &[u8]) -> Result<VenusResponse, VenusRuntimeError> {
         let header = CtrlHeader::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
         match header.typ {
             CMD_GET_CAPSET_INFO => {
@@ -228,7 +229,7 @@ impl VenusRuntime {
                     req.blob_flags,
                     req.blob_id,
                     req.size,
-                    guest_memory,
+                    &self.guest_memory,
                     &entries,
                 ) {
                     self.state.resources.remove(&req.resource_id);
