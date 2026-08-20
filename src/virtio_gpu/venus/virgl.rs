@@ -7,7 +7,7 @@ use virglrenderer::{
     VirglRendererFlags,
 };
 
-use crate::virtio_gpu::protocol::commands::{CAPSET_VENUS, FLAG_INFO_RING_IDX};
+use crate::virtio_gpu::protocol::commands::CAPSET_VENUS;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CompletedFence {
@@ -41,6 +41,14 @@ impl FenceHandler for FenceSink {
     }
 }
 
+struct FenceSinkProxy(Arc<FenceSink>);
+
+impl FenceHandler for FenceSinkProxy {
+    fn call(&self, fence_id: u64, ctx_id: u32, ring_idx: u8) {
+        self.0.call(fence_id, ctx_id, ring_idx)
+    }
+}
+
 pub struct VirglVenusBackend {
     renderer: Arc<VirglRenderer>,
     fence_sink: Arc<FenceSink>,
@@ -57,7 +65,12 @@ impl VirglVenusBackend {
             .use_async_fence_cb(true)
             .use_thread_sync(true);
 
-        let renderer = VirglRenderer::init(flags, Box::new(FenceSinkProxy(fence_sink.clone())), None, None)?;
+        let renderer = VirglRenderer::init(
+            flags,
+            Box::new(FenceSinkProxy(fence_sink.clone())),
+            None,
+            None,
+        )?;
 
         Ok(Self {
             renderer: Arc::new(renderer),
@@ -73,7 +86,12 @@ impl VirglVenusBackend {
         self.renderer.get_capset(CAPSET_VENUS, version)
     }
 
-    pub fn create_context(&self, ctx_id: u32, context_init: u32, name: Option<&str>) -> Result<(), virglrenderer::VirglError> {
+    pub fn create_context(
+        &self,
+        ctx_id: u32,
+        context_init: u32,
+        name: Option<&str>,
+    ) -> Result<(), virglrenderer::VirglError> {
         self.renderer.create_context(ctx_id, context_init, name)
     }
 
@@ -122,26 +140,14 @@ impl VirglVenusBackend {
         in_fences: &[u64],
     ) -> Result<(), virglrenderer::VirglError> {
         self.renderer.submit_cmd(ctx_id, commands, in_fences)?;
-        if flags & FLAG_INFO_RING_IDX != 0 {
-            self.renderer
-                .context_create_fence(ctx_id, flags, ring_idx as u32, fence_id)?;
-        } else {
-            self.renderer.create_fence(fence_id as u32, ctx_id)?;
-        }
+        self.renderer
+            .context_create_fence(ctx_id, flags, ring_idx as u32, fence_id)?;
         Ok(())
     }
 
     pub fn poll(&self) -> Vec<CompletedFence> {
         self.renderer.event_poll();
         self.fence_sink.drain()
-    }
-}
-
-struct FenceSinkProxy(Arc<FenceSink>);
-
-impl FenceHandler for FenceSinkProxy {
-    fn call(&self, fence_id: u64, ctx_id: u32, ring_idx: u8) {
-        self.0.call(fence_id, ctx_id, ring_idx)
     }
 }
 
