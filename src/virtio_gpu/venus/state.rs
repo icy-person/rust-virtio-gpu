@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::virtio_gpu::protocol::commands::{
-    BLOB_FLAG_USE_CROSS_DEVICE, BLOB_FLAG_USE_MAPPABLE, BLOB_FLAG_USE_SHAREABLE,
-    BLOB_MEM_GUEST, BLOB_MEM_HOST3D, BLOB_MEM_HOST3D_GUEST, CAPSET_VENUS,
+    BLOB_FLAG_USE_CROSS_DEVICE, BLOB_FLAG_USE_MAPPABLE, BLOB_FLAG_USE_SHAREABLE, BLOB_MEM_GUEST,
+    BLOB_MEM_HOST3D, BLOB_MEM_HOST3D_GUEST, CAPSET_VENUS,
 };
 
 pub const VENUS_MAX_VERSION: u32 = 1;
@@ -80,7 +80,7 @@ impl VenusResource {
 
         match memory {
             BlobMemory::Guest | BlobMemory::Host3dGuest if guest_backing_size < size => {
-                return Err(VenusStateError::InvalidBlobSize)
+                return Err(VenusStateError::InvalidBlobSize);
             }
             _ => {}
         }
@@ -386,7 +386,10 @@ mod tests {
             )
             .unwrap();
         assert_eq!(state.resources.len(), 1);
-        assert_eq!(state.resources.get(&1).unwrap().map(0x1000).unwrap(), 0x1000);
+        assert_eq!(
+            state.resources.get(&1).unwrap().map(0x1000).unwrap(),
+            0x1000
+        );
         assert_eq!(state.resources.get_mut(&1).unwrap().unmap(), Ok(()));
         assert_eq!(state.unref_resource(1), Ok(()));
     }
@@ -395,13 +398,43 @@ mod tests {
     fn context_attachment_is_symmetric() {
         let mut state = VenusState::new();
         state.create_context(1, CAPSET_VENUS, b"ctx").unwrap();
-        state.create_blob(2, 9, 4096, BLOB_MEM_HOST3D, 0, 0).unwrap();
+        state
+            .create_blob(2, 9, 4096, BLOB_MEM_HOST3D, 0, 0)
+            .unwrap();
         state.attach_resource(1, 2).unwrap();
-        assert!(state.contexts.get(&1).unwrap().attached_resources.contains(&2));
-        assert!(state.resources.get(&2).unwrap().attached_contexts.contains(&1));
+        assert!(
+            state
+                .contexts
+                .get(&1)
+                .unwrap()
+                .attached_resources
+                .contains(&2)
+        );
+        assert!(
+            state
+                .resources
+                .get(&2)
+                .unwrap()
+                .attached_contexts
+                .contains(&1)
+        );
         state.detach_resource(1, 2).unwrap();
-        assert!(state.contexts.get(&1).unwrap().attached_resources.is_empty());
-        assert!(state.resources.get(&2).unwrap().attached_contexts.is_empty());
+        assert!(
+            state
+                .contexts
+                .get(&1)
+                .unwrap()
+                .attached_resources
+                .is_empty()
+        );
+        assert!(
+            state
+                .resources
+                .get(&2)
+                .unwrap()
+                .attached_contexts
+                .is_empty()
+        );
     }
 
     #[test]
