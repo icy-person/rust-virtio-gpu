@@ -1,6 +1,6 @@
-use crate::virtio_gpu::protocol::commands::{RESP_OK_EDID, RESP_OK_NODATA};
+use crate::virtio_gpu::protocol::commands::RESP_OK_EDID;
 use crate::virtio_gpu::protocol::requests::standard::{GetEdid, SetScanoutBlob};
-use crate::virtio_gpu::protocol::responses::{RespEdid, RespOkNoData};
+use crate::virtio_gpu::protocol::responses::RespEdid;
 
 impl VirtioGpuDevice {
     pub(crate) fn handle_detach_backing(&mut self, resource_id: u32) -> Result<(), DeviceError> {
@@ -27,31 +27,27 @@ impl VirtioGpuDevice {
 
         let mut edid = [0u8; 128];
         edid[..8].copy_from_slice(&[0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00]);
-        // Generic manufacturer/product identity for the emulator display.
         edid[8..10].copy_from_slice(&[0x4f, 0x41]);
         edid[10..12].copy_from_slice(&[0x01, 0x00]);
         edid[16] = 1;
         edid[17] = 1;
         edid[18] = 1;
         edid[19] = 4;
-
-        let width_cm = ((resource.width as f32 / 96.0).max(1.0)).round() as u8;
-        let height_cm = ((resource.height as f32 / 96.0).max(1.0)).round() as u8;
-        edid[21] = width_cm;
-        edid[22] = height_cm;
+        edid[21] = ((resource.width as f32 / 96.0).max(1.0)).round() as u8;
+        edid[22] = ((resource.height as f32 / 96.0).max(1.0)).round() as u8;
         edid[23] = 0x78;
         edid[24] = 0x0a;
         edid[25] = 0xcf;
         edid[26] = 0x74;
         edid[27] = 0xa3;
-
-        let hactive = resource.width.min(4095) as u16;
-        let vactive = resource.height.min(4095) as u16;
-        edid[56..58].copy_from_slice(&hactive.to_le_bytes());
-        edid[58..60].copy_from_slice(&vactive.to_le_bytes());
-
+        edid[56..58].copy_from_slice(&resource.width.min(4095).to_le_bytes()[..2]);
+        edid[58..60].copy_from_slice(&resource.height.min(4095).to_le_bytes()[..2]);
         edid[126] = 0;
-        edid[127] = 0u8.wrapping_sub(edid[..127].iter().fold(0u8, |a, b| a.wrapping_add(*b)));
+        edid[127] = 0u8.wrapping_sub(
+            edid[..127]
+                .iter()
+                .fold(0u8, |sum, byte| sum.wrapping_add(*byte)),
+        );
 
         let mut bytes = Vec::with_capacity(RespEdid::SIZE);
         bytes.extend_from_slice(
@@ -104,16 +100,5 @@ impl VirtioGpuDevice {
             self.display = Some(Display::new(request.width as usize, request.height as usize));
         }
         Ok(())
-    }
-
-    pub(crate) fn ok_no_data_response(request: crate::virtio_gpu::protocol::header::CtrlHeader) -> Vec<u8> {
-        RespOkNoData {
-            header: crate::virtio_gpu::protocol::header::CtrlHeader {
-                typ: RESP_OK_NODATA,
-                ..request
-            },
-        }
-        .encode_le()
-        .to_vec()
     }
 }
