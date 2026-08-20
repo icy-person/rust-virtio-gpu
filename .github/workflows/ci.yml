@@ -7,12 +7,19 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    env:
+      LIBGL_ALWAYS_SOFTWARE: "1"
     steps:
       - uses: actions/checkout@v4
       - name: Install Venus backend system dependencies
+        shell: bash
         run: |
+          set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y libvirglrenderer-dev libvulkan-dev pkg-config clang
+          sudo apt-get install -y libvirglrenderer-dev libvulkan-dev libegl1 mesa-vulkan-drivers pkg-config clang
+          ICD=$(find /usr/share/vulkan/icd.d -maxdepth 1 -type f -name '*lvp*.json' -print -quit)
+          test -n "$ICD"
+          echo "VK_DRIVER_FILES=$ICD" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
@@ -38,6 +45,14 @@ jobs:
           p.write_text(s.replace(old, new, 1))
           PY
           grep -q '4 => return' "$SRC"
+      - name: Verify Vulkan software device
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Using Vulkan ICD: $VK_DRIVER_FILES"
+          if command -v vulkaninfo >/dev/null 2>&1; then
+            vulkaninfo --summary 2>/dev/null | grep -E 'GPU|deviceName' | head -n 5 || true
+          fi
       - name: Build
         run: cargo check --all-targets --all-features
       - name: Test

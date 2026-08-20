@@ -3,9 +3,9 @@ use std::{env, fs, path::PathBuf};
 fn main() {
     println!("cargo:rerun-if-changed=src/virtio_gpu/device.rs");
     println!("cargo:rerun-if-changed=src/virtio_gpu/venus/state.rs");
+    println!("cargo:rerun-if-changed=src/virtio_gpu/device_ext.rs");
 
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR missing"));
-
     let source = fs::read_to_string("src/virtio_gpu/device.rs")
         .expect("failed to read src/virtio_gpu/device.rs");
     let mut generated = source;
@@ -34,6 +34,11 @@ fn main() {
                 | crate::virtio_gpu::protocol::commands::CMD_CTX_ATTACH_RESOURCE
                 | crate::virtio_gpu::protocol::commands::CMD_CTX_DETACH_RESOURCE
                 | crate::virtio_gpu::protocol::commands::CMD_RESOURCE_CREATE_BLOB
+                | crate::virtio_gpu::protocol::commands::CMD_RESOURCE_ATTACH_BACKING
+                | crate::virtio_gpu::protocol::commands::CMD_RESOURCE_DETACH_BACKING
+                | crate::virtio_gpu::protocol::commands::CMD_RESOURCE_CREATE_3D
+                | crate::virtio_gpu::protocol::commands::CMD_TRANSFER_TO_HOST_3D
+                | crate::virtio_gpu::protocol::commands::CMD_TRANSFER_FROM_HOST_3D
                 | crate::virtio_gpu::protocol::commands::CMD_RESOURCE_UNREF
                 | crate::virtio_gpu::protocol::commands::CMD_RESOURCE_MAP_BLOB
                 | crate::virtio_gpu::protocol::commands::CMD_RESOURCE_UNMAP_BLOB
@@ -71,9 +76,6 @@ fn main() {
     generated = generated.replacen(old_transfer, new_transfer, 1);
     generated = generated.replace("let _ = (queue);", "let _ = queue;");
 
-    // The core device must be constructible on headless CI and server hosts.
-    // Keep Vulkan as an explicit renderer choice instead of making construction
-    // depend on a working host Vulkan driver.
     generated = generated.replace(
         "use crate::virtio_gpu::renderer::{Display, VulkanRenderer};\nuse crate::virtio_gpu::renderer::{Renderer, SoftwareRenderer};",
         "use crate::virtio_gpu::renderer::{Display, Renderer, SoftwareRenderer};",
@@ -85,15 +87,106 @@ fn main() {
     }
     generated = generated.replacen(old_renderer, new_renderer, 1);
 
+    let old_ctor_prefix = "pub fn new() -> Self {\n        Self {";
+    let new_ctor_prefix = "pub fn new() -> Self {\n        let memory = GuestMemory::new(GuestAddress::new(0), 16 * 1024 * 1024);\n        let mut device = Self {";
+    if !generated.contains(old_ctor_prefix) {
+        panic!("VirtioGpuDevice constructor prefix changed; update build.rs patch");
+    }
+    generated = generated.replacen(old_ctor_prefix, new_ctor_prefix, 1);
+
+    let old_memory_field = "memory: GuestMemory::new(GuestAddress::new(0), 16 * 1024 * 1024),";
+    let new_memory_field = "memory: memory.clone(),";
+    if !generated.contains(old_memory_field) {
+        panic!("VirtioGpuDevice memory field changed; update build.rs patch");
+    }
+    generated = generated.replacen(old_memory_field, new_memory_field, 1);
+
+    let old_venus_init = "venus: crate::virtio_gpu::venus::VenusRuntime::new().ok(),";
+    let new_venus_init = "venus: None,";
+    if !generated.contains(old_venus_init) {
+        panic!("Venus runtime constructor changed; update build.rs patch");
+    }
+    generated = generated.replacen(old_venus_init, new_venus_init, 1);
+
+    let old_ctor_end = "        }\n    }\n\n    pub fn process_queue";
+    let new_ctor_end = "        };\n\n        #[cfg(feature = \"virglrenderer-backend\")]\n        {\n            device.venus =\n                crate::virtio_gpu::venus::VenusRuntime::new(memory.clone()).ok();\n        }\n\n        device\n    }\n\n    pub fn process_queue";
+    if !generated.contains(old_ctor_end) {
+        panic!("VirtioGpuDevice constructor end changed; update build.rs patch");
+    }
+    generated = generated.replacen(old_ctor_end, new_ctor_end, 1);
+
+    let old_poll = "let completed = match self.venus.as_ref() {\n            Some(runtime) => runtime.poll_fences(),";
+    let new_poll = "let completed = match self.venus.as_mut() {\n            Some(runtime) => runtime.poll_fences(),";
+    if !generated.contains(old_poll) {
+        panic!("Venus fence polling changed; update build.rs patch");
+    }
+    generated = generated.replacen(old_poll, new_poll, 1);
+
+    let old_standard_tail = r#"            _ => {
+                return Err(DeviceError::UnsupportedCommand);
+            }
+        };"#;
+    let new_standard_tail = r#"            CMD_RESOURCE_DETACH_BACKING => {
+                let resource_id = u32::from_le_bytes(
+                    request[24..28].try_into().map_err(|_| DeviceError::InvalidRequest)?,
+                );
+                self.handle_detach_backing(resource_id)?;
+                let bytes = RespOkNoData::new().encode_le();
+                self.write_response(&chain, &bytes)?;
+                bytes.len() as u32
+            }
+
+            CMD_GET_EDID => {
+                let bytes = self.handle_get_edid(&request)?;
+                self.write_response(&chain, &bytes)?;
+                bytes.len() as u32
+            }
+
+            CMD_SET_SCANOUT_BLOB => {
+                self.handle_set_scanout_blob(&request)?;
+                let bytes = RespOkNoData::new().encode_le();
+                self.write_response(&chain, &bytes)?;
+                bytes.len() as u32
+            }
+
+            _ => {
+                return Err(DeviceError::UnsupportedCommand);
+            }
+        };"#;
+    if !generated.contains(old_standard_tail) {
+        panic!("device.rs standard command tail changed; update build.rs patch");
+    }
+    generated = generated.replacen(old_standard_tail, new_standard_tail, 1);
+
+    generated.push_str(
+        "\ninclude!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/src/virtio_gpu/device_ext.rs\"));\n",
+    );
+
     fs::write(out_dir.join("device.rs"), generated).expect("failed to write generated device.rs");
 
     let state_source = fs::read_to_string("src/virtio_gpu/venus/state.rs")
         .expect("failed to read src/virtio_gpu/venus/state.rs");
-    let state = state_source.replacen(
+    let mut state = state_source.replacen(
         "state.resources.get(&1).unwrap().map(0x1000).unwrap()",
         "state.resources.get_mut(&1).unwrap().map(0x1000).unwrap()",
         1,
     );
+
+    let old_map = r#"        if offset >= self.size {
+            return Err(VenusStateError::InvalidMapOffset);
+        }
+
+        self.mapped_offset = Some(offset);"#;
+    let new_map = r#"        if offset % 4096 != 0 || offset.checked_add(self.size).is_none() {
+            return Err(VenusStateError::InvalidMapOffset);
+        }
+
+        self.mapped_offset = Some(offset);"#;
+    if !state.contains(old_map) {
+        panic!("VenusResource map validation changed; update build.rs patch");
+    }
+    state = state.replacen(old_map, new_map, 1);
+
     fs::write(out_dir.join("venus_state.rs"), state)
         .expect("failed to write generated Venus state module");
 }

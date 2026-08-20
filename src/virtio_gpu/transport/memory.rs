@@ -19,17 +19,22 @@ pub enum GuestMemoryError {
     AddressOverflow,
 }
 
+/// Fixed-size guest memory shared by all device components.
+///
+/// The backing allocation is a boxed slice and is never resized after creation.
+/// This gives integrations such as virglrenderer a stable address for an I/O vector
+/// while the allocation remains owned by the `GuestMemory` instance.
 #[derive(Clone)]
 pub struct GuestMemory {
     base: GuestAddress,
-    data: Arc<RwLock<Vec<u8>>>,
+    data: Arc<RwLock<Box<[u8]>>>,
 }
 
 impl GuestMemory {
     pub fn new(base: GuestAddress, size: usize) -> Self {
         Self {
             base,
-            data: Arc::new(RwLock::new(vec![0; size])),
+            data: Arc::new(RwLock::new(vec![0; size].into_boxed_slice())),
         }
     }
 
@@ -38,7 +43,7 @@ impl GuestMemory {
     }
 
     pub fn len(&self) -> usize {
-        self.data.read().unwrap().len()
+        self.data.read().expect("guest memory poisoned").len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -64,10 +69,21 @@ impl GuestMemory {
         Ok(offset)
     }
 
+    /// Returns a stable mutable pointer into the fixed guest allocation.
+    ///
+    /// The caller must keep this `GuestMemory` alive and must not expose the pointer
+    /// outside the allocation validated by this method. The allocation is never resized.
+    pub fn as_mut_ptr(&self, addr: GuestAddress, len: usize) -> Result<*mut u8, GuestMemoryError> {
+        let offset = self.offset(addr, len)?;
+        let memory = self.data.read().expect("guest memory poisoned");
+        // The boxed slice is fixed-size for the lifetime of this GuestMemory.
+        Ok(unsafe { memory.as_ptr().add(offset) as *mut u8 })
+    }
+
     pub fn read(&self, addr: GuestAddress, out: &mut [u8]) -> Result<(), GuestMemoryError> {
         let offset = self.offset(addr, out.len())?;
 
-        let memory = self.data.read().unwrap();
+        let memory = self.data.read().expect("guest memory poisoned");
 
         out.copy_from_slice(&memory[offset..offset + out.len()]);
 
@@ -77,7 +93,7 @@ impl GuestMemory {
     pub fn write(&self, addr: GuestAddress, data: &[u8]) -> Result<(), GuestMemoryError> {
         let offset = self.offset(addr, data.len())?;
 
-        let mut memory = self.data.write().unwrap();
+        let mut memory = self.data.write().expect("guest memory poisoned");
 
         memory[offset..offset + data.len()].copy_from_slice(data);
 
@@ -135,30 +151,22 @@ impl GuestMemory {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
 
     #[test]
     fn memory_round_trip() {
         let memory = GuestMemory::new(GuestAddress::new(0x1000), 64);
-
         let data = [1, 2, 3, 4, 5];
-
         memory.write(GuestAddress::new(0x1010), &data).unwrap();
-
         let mut out = [0u8; 5];
-
         memory.read(GuestAddress::new(0x1010), &mut out).unwrap();
-
         assert_eq!(out, data);
     }
 
     #[test]
     fn memory_rejects_before_base() {
         let memory = GuestMemory::new(GuestAddress::new(0x1000), 64);
-
         let mut out = [0u8; 1];
-
         assert_eq!(
             memory.read(GuestAddress::new(0x0fff), &mut out),
             Err(GuestMemoryError::OutOfBounds)
@@ -168,9 +176,7 @@ mod tests {
     #[test]
     fn memory_rejects_past_end() {
         let memory = GuestMemory::new(GuestAddress::new(0x1000), 64);
-
         let mut out = [0u8; 1];
-
         assert_eq!(
             memory.read(GuestAddress::new(0x1040), &mut out),
             Err(GuestMemoryError::OutOfBounds)
@@ -180,11 +186,9 @@ mod tests {
     #[test]
     fn integer_access_is_little_endian() {
         let memory = GuestMemory::new(GuestAddress::new(0x1000), 32);
-
         memory
             .write_u32(GuestAddress::new(0x1004), 0x11223344)
             .unwrap();
-
         assert_eq!(
             memory.read_u32(GuestAddress::new(0x1004)).unwrap(),
             0x11223344
@@ -194,26 +198,29 @@ mod tests {
     #[test]
     fn cloned_memory_shares_guest_memory() {
         let memory = GuestMemory::new(GuestAddress::new(0x1000), 64);
-
         let shared = memory.clone();
-
         memory
             .write(GuestAddress::new(0x1010), &[1, 2, 3, 4])
             .unwrap();
-
         let mut out = [0u8; 4];
-
         shared.read(GuestAddress::new(0x1010), &mut out).unwrap();
-
         assert_eq!(out, [1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn pointer_access_is_bounds_checked() {
+        let memory = GuestMemory::new(GuestAddress::new(0x1000), 64);
+        assert!(memory.as_mut_ptr(GuestAddress::new(0x1010), 16).is_ok());
+        assert_eq!(
+            memory.as_mut_ptr(GuestAddress::new(0x1040), 1),
+            Err(GuestMemoryError::OutOfBounds)
+        );
     }
 
     #[test]
     fn address_overflow_is_rejected() {
         let memory = GuestMemory::new(GuestAddress::new(0x1000), 64);
-
         let mut out = [0u8; 8];
-
         assert_eq!(
             memory.read(GuestAddress::new(u64::MAX), &mut out),
             Err(GuestMemoryError::OutOfBounds)

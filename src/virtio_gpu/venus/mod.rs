@@ -8,6 +8,7 @@ pub mod state {
 }
 
 #[cfg(feature = "virglrenderer-backend")]
+#[allow(unused_imports)]
 pub mod runtime;
 
 #[cfg(feature = "virglrenderer-backend")]
