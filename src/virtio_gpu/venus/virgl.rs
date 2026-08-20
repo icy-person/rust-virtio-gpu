@@ -72,11 +72,8 @@ impl VirglVenusBackend {
             .use_external_blob(true)
             .use_async_fence_cb(true)
             .use_thread_sync(true);
-        let renderer = VirglRenderer::init(
-            flags,
-            Box::new(FenceSinkProxy(fence_sink.clone())),
-            None,
-        )?;
+        let renderer =
+            VirglRenderer::init(flags, Box::new(FenceSinkProxy(fence_sink.clone())), None)?;
         Ok(Self {
             renderer: Arc::new(renderer),
             fence_sink,
@@ -125,8 +122,7 @@ impl VirglVenusBackend {
             .map(|entry| {
                 let ptr = memory.as_mut_ptr(
                     GuestAddress::new(entry.addr),
-                    usize::try_from(entry.length)
-                        .map_err(|_| GuestMemoryError::AddressOverflow)?,
+                    usize::try_from(entry.length).map_err(|_| GuestMemoryError::AddressOverflow)?,
                 )?;
                 Ok(Iovec {
                     base: ptr.cast(),
@@ -272,10 +268,7 @@ impl VirglVenusBackend {
             .remove(&resource_id);
     }
 
-    pub fn map_resource(
-        &self,
-        resource_id: u32,
-    ) -> Result<(u64, u32), virglrenderer::VirglError> {
+    pub fn map_resource(&self, resource_id: u32) -> Result<(u64, u32), virglrenderer::VirglError> {
         let (_ptr, size) = self.renderer.map(resource_id)?;
         let map_info = *self
             .map_info
@@ -327,9 +320,7 @@ impl VirglVenusBackend {
         let mut copied = 0usize;
         for entry in entries {
             let len = entry.length as usize;
-            let end = copied
-                .checked_add(len)
-                .ok_or_else(Self::backend_io_error)?;
+            let end = copied.checked_add(len).ok_or_else(Self::backend_io_error)?;
             if end > staging.len() {
                 return Err(Self::backend_io_error());
             }
