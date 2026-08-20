@@ -107,7 +107,7 @@ impl VenusResource {
         if self.mapped_offset.is_some() {
             return Err(VenusStateError::AlreadyMapped);
         }
-        if offset >= self.size {
+        if offset % 4096 != 0 || offset.checked_add(self.size).is_none() {
             return Err(VenusStateError::InvalidMapOffset);
         }
 
@@ -226,6 +226,7 @@ pub struct VenusState {
     pub fences: FenceTracker,
     pub capset_version: u32,
     pub capset_size: u32,
+    pub capset_payload: Vec<u8>,
 }
 
 impl Default for VenusState {
@@ -242,7 +243,14 @@ impl VenusState {
             fences: FenceTracker::default(),
             capset_version: VENUS_MAX_VERSION,
             capset_size: 0,
+            capset_payload: Vec::new(),
         }
+    }
+
+    pub fn set_capset(&mut self, version: u32, payload: Vec<u8>) {
+        self.capset_version = version;
+        self.capset_size = payload.len().try_into().unwrap_or(u32::MAX);
+        self.capset_payload = payload;
     }
 
     pub fn create_context(
@@ -402,39 +410,11 @@ mod tests {
             .create_blob(2, 9, 4096, BLOB_MEM_HOST3D, 0, 0)
             .unwrap();
         state.attach_resource(1, 2).unwrap();
-        assert!(
-            state
-                .contexts
-                .get(&1)
-                .unwrap()
-                .attached_resources
-                .contains(&2)
-        );
-        assert!(
-            state
-                .resources
-                .get(&2)
-                .unwrap()
-                .attached_contexts
-                .contains(&1)
-        );
+        assert!(state.contexts.get(&1).unwrap().attached_resources.contains(&2));
+        assert!(state.resources.get(&2).unwrap().attached_contexts.contains(&1));
         state.detach_resource(1, 2).unwrap();
-        assert!(
-            state
-                .contexts
-                .get(&1)
-                .unwrap()
-                .attached_resources
-                .is_empty()
-        );
-        assert!(
-            state
-                .resources
-                .get(&2)
-                .unwrap()
-                .attached_contexts
-                .is_empty()
-        );
+        assert!(state.contexts.get(&1).unwrap().attached_resources.is_empty());
+        assert!(state.resources.get(&2).unwrap().attached_contexts.is_empty());
     }
 
     #[test]
