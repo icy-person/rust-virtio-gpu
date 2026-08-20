@@ -6,6 +6,6 @@ pub mod state;
 
 pub use dispatcher::{VenusDispatchError, VenusResponse};
 pub use state::{
-    BlobMemory, FencePoint, FenceTracker, VenusContext, VenusResource, VenusState,
-    VenusStateError, VENUS_MAX_VERSION,
+    BlobMemory, FencePoint, FenceTracker, VENUS_MAX_VERSION, VenusContext, VenusResource,
+    VenusState, VenusStateError,
 };
