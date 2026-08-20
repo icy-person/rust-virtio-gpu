@@ -9,6 +9,7 @@ pub mod state {
 
 #[cfg(feature = "virglrenderer-backend")]
 #[path = "runtime.rs"]
+#[allow(unused_imports)]
 mod runtime_impl;
 
 #[cfg(feature = "virglrenderer-backend")]
