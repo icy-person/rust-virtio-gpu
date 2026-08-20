@@ -208,7 +208,9 @@ impl PciBar {
     }
 
     pub fn contains(&self, offset: u64, length: u64) -> bool {
-        offset.checked_add(length).is_some_and(|end| end <= self.size)
+        offset
+            .checked_add(length)
+            .is_some_and(|end| end <= self.size)
     }
 
     pub fn contains_abs(&self, address: u64, length: u64) -> bool {
@@ -329,16 +331,23 @@ impl VirtioPciTransport {
         self.bars.get(index as usize).copied().flatten()
     }
 
-    pub fn add_capability(&mut self, capability: VirtioPciCapability) -> Result<(), PciTransportError> {
-        let bar = self.bar(capability.bar).ok_or(PciTransportError::InvalidBar)?;
+    pub fn add_capability(
+        &mut self,
+        capability: VirtioPciCapability,
+    ) -> Result<(), PciTransportError> {
+        let bar = self
+            .bar(capability.bar)
+            .ok_or(PciTransportError::InvalidBar)?;
         if capability.cap_len < VirtioPciCapability::SIZE as u8 || capability.cfg_type == 0 {
             return Err(PciTransportError::InvalidCapability);
         }
         if !bar.contains(capability.offset as u64, capability.length as u64) {
             return Err(PciTransportError::CapabilityOutOfBounds);
         }
-        if matches!(capability.cfg_type, VIRTIO_PCI_CAP_COMMON_CFG | VIRTIO_PCI_CAP_DEVICE_CFG)
-            && !capability.offset.is_multiple_of(4)
+        if matches!(
+            capability.cfg_type,
+            VIRTIO_PCI_CAP_COMMON_CFG | VIRTIO_PCI_CAP_DEVICE_CFG
+        ) && !capability.offset.is_multiple_of(4)
         {
             return Err(PciTransportError::InvalidCapability);
         }
@@ -357,7 +366,10 @@ impl VirtioPciTransport {
         Ok(())
     }
 
-    pub fn add_notify_capability(&mut self, capability: VirtioPciNotifyCapability) -> Result<(), PciTransportError> {
+    pub fn add_notify_capability(
+        &mut self,
+        capability: VirtioPciNotifyCapability,
+    ) -> Result<(), PciTransportError> {
         self.add_capability(capability.cap)?;
         if let Some(last) = self.capabilities.last_mut() {
             last.cap_len = VirtioPciNotifyCapability::SIZE as u8;
@@ -394,8 +406,12 @@ impl VirtioPciTransport {
         let bytes_len = usize::try_from(length).map_err(|_| PciTransportError::InvalidValue)?;
         self.shared_memory_regions.insert(id, region);
         self.shared_memory_bytes.insert(id, vec![0; bytes_len]);
-        self.shared_memory_capabilities
-            .push(VirtioPciCap64::new(bar, u8::try_from(id).map_err(|_| PciTransportError::InvalidValue)?, offset, length));
+        self.shared_memory_capabilities.push(VirtioPciCap64::new(
+            bar,
+            u8::try_from(id).map_err(|_| PciTransportError::InvalidValue)?,
+            offset,
+            length,
+        ));
         if self.common_config.shm_sel == id {
             self.common_config.set_shared_memory_region(length, base);
         }
@@ -413,7 +429,10 @@ impl VirtioPciTransport {
             .ok_or(PciTransportError::SharedMemoryNotFound)
     }
 
-    pub fn shared_memory_region_bytes_mut(&mut self, id: u32) -> Result<&mut [u8], PciTransportError> {
+    pub fn shared_memory_region_bytes_mut(
+        &mut self,
+        id: u32,
+    ) -> Result<&mut [u8], PciTransportError> {
         self.shared_memory_bytes
             .get_mut(&id)
             .map(Vec::as_mut_slice)
@@ -436,7 +455,10 @@ impl VirtioPciTransport {
     }
 
     pub fn capability(&self, cfg_type: u8) -> Option<VirtioPciCapability> {
-        self.capabilities.iter().copied().find(|cap| cap.cfg_type == cfg_type)
+        self.capabilities
+            .iter()
+            .copied()
+            .find(|cap| cap.cfg_type == cfg_type)
     }
 
     pub fn notify_off_multiplier(&self) -> u32 {
@@ -483,7 +505,9 @@ impl VirtioPciTransport {
     }
 
     fn selected_queue_index(&self) -> Result<usize, PciTransportError> {
-        let index = self.selected_queue.ok_or(PciTransportError::QueueNotSelected)?;
+        let index = self
+            .selected_queue
+            .ok_or(PciTransportError::QueueNotSelected)?;
         if index >= self.common_config.num_queues {
             return Err(PciTransportError::InvalidQueueIndex);
         }
@@ -493,7 +517,8 @@ impl VirtioPciTransport {
     fn select_shared_memory(&mut self, id: u32) {
         self.common_config.shm_sel = id;
         if let Some(region) = self.shared_memory_regions.get(&id).copied() {
-            self.common_config.set_shared_memory_region(region.length, region.base);
+            self.common_config
+                .set_shared_memory_region(region.length, region.base);
         } else {
             self.common_config.set_no_shared_memory_region();
         }
@@ -501,17 +526,31 @@ impl VirtioPciTransport {
 
     pub fn read_common(&self, offset: u64, width: usize) -> Result<u64, PciTransportError> {
         match (offset, width) {
-            (CommonConfig::DEVICE_FEATURE_SELECT, 4) => Ok(self.common_config.device_feature_select as u64),
+            (CommonConfig::DEVICE_FEATURE_SELECT, 4) => {
+                Ok(self.common_config.device_feature_select as u64)
+            }
             (CommonConfig::DEVICE_FEATURE, 4) => {
                 let select = self.common_config.device_feature_select;
-                Ok(if select <= 1 { (self.device.device_features().bits() >> (select * 32)) & 0xffff_ffff } else { 0 })
+                Ok(if select <= 1 {
+                    (self.device.device_features().bits() >> (select * 32)) & 0xffff_ffff
+                } else {
+                    0
+                })
             }
-            (CommonConfig::DRIVER_FEATURE_SELECT, 4) => Ok(self.common_config.driver_feature_select as u64),
+            (CommonConfig::DRIVER_FEATURE_SELECT, 4) => {
+                Ok(self.common_config.driver_feature_select as u64)
+            }
             (CommonConfig::DRIVER_FEATURE, 4) => {
                 let select = self.common_config.driver_feature_select;
-                Ok(if select <= 1 { (self.device.driver_features().bits() >> (select * 32)) & 0xffff_ffff } else { 0 })
+                Ok(if select <= 1 {
+                    (self.device.driver_features().bits() >> (select * 32)) & 0xffff_ffff
+                } else {
+                    0
+                })
             }
-            (CommonConfig::CONFIG_MSIX_VECTOR, 2) => Ok(self.common_config.config_msix_vector as u64),
+            (CommonConfig::CONFIG_MSIX_VECTOR, 2) => {
+                Ok(self.common_config.config_msix_vector as u64)
+            }
             (CommonConfig::NUM_QUEUES, 2) => Ok(self.common_config.num_queues as u64),
             (CommonConfig::DEVICE_STATUS, 1) => Ok(self.device.status().bits() as u64),
             (CommonConfig::CONFIG_GENERATION, 1) => Ok(self.device.config_generation() as u64),
@@ -534,10 +573,19 @@ impl VirtioPciTransport {
         }
     }
 
-    pub fn write_common(&mut self, offset: u64, width: usize, value: u64) -> Result<(), PciTransportError> {
+    pub fn write_common(
+        &mut self,
+        offset: u64,
+        width: usize,
+        value: u64,
+    ) -> Result<(), PciTransportError> {
         match (offset, width) {
-            (CommonConfig::DEVICE_FEATURE_SELECT, 4) => self.common_config.device_feature_select = value as u32,
-            (CommonConfig::DRIVER_FEATURE_SELECT, 4) => self.common_config.driver_feature_select = value as u32,
+            (CommonConfig::DEVICE_FEATURE_SELECT, 4) => {
+                self.common_config.device_feature_select = value as u32
+            }
+            (CommonConfig::DRIVER_FEATURE_SELECT, 4) => {
+                self.common_config.driver_feature_select = value as u32
+            }
             (CommonConfig::DRIVER_FEATURE, 4) => {
                 let select = self.common_config.driver_feature_select;
                 if select <= 1 {
@@ -547,7 +595,9 @@ impl VirtioPciTransport {
                     self.device.set_driver_features(features)?;
                 }
             }
-            (CommonConfig::CONFIG_MSIX_VECTOR, 2) => self.common_config.config_msix_vector = value as u16,
+            (CommonConfig::CONFIG_MSIX_VECTOR, 2) => {
+                self.common_config.config_msix_vector = value as u16
+            }
             (CommonConfig::DEVICE_STATUS, 1) => {
                 self.device.set_status(value as u8)?;
                 self.common_config.device_status = self.device.status().bits();
@@ -644,8 +694,18 @@ impl VirtioPciTransport {
             CommonConfig::SIZE as u32,
         ))?;
         self.add_notify_capability(VirtioPciNotifyCapability::new(0, 0x100, 0x100, 4))?;
-        self.add_capability(VirtioPciCapability::new(VIRTIO_PCI_CAP_ISR_CFG, 0, 0x200, 1))?;
-        self.add_capability(VirtioPciCapability::new(VIRTIO_PCI_CAP_DEVICE_CFG, 0, 0x300, 0x100))?;
+        self.add_capability(VirtioPciCapability::new(
+            VIRTIO_PCI_CAP_ISR_CFG,
+            0,
+            0x200,
+            1,
+        ))?;
+        self.add_capability(VirtioPciCapability::new(
+            VIRTIO_PCI_CAP_DEVICE_CFG,
+            0,
+            0x300,
+            0x100,
+        ))?;
         self.add_shared_memory_region(2, 1, 0, 0x0400_0000)?;
         Ok(())
     }
@@ -654,7 +714,9 @@ impl VirtioPciTransport {
         if !matches!(width, 1 | 2 | 4 | 8) {
             return Err(PciTransportError::UnsupportedAccess);
         }
-        let end = offset.checked_add(width as u64).ok_or(PciTransportError::InvalidValue)?;
+        let end = offset
+            .checked_add(width as u64)
+            .ok_or(PciTransportError::InvalidValue)?;
         if end > self.device_config.len() as u64 {
             return Err(PciTransportError::InvalidValue);
         }
@@ -664,11 +726,18 @@ impl VirtioPciTransport {
         Ok(u64::from_le_bytes(bytes))
     }
 
-    pub fn write_device_config(&mut self, offset: u64, width: usize, value: u64) -> Result<(), PciTransportError> {
+    pub fn write_device_config(
+        &mut self,
+        offset: u64,
+        width: usize,
+        value: u64,
+    ) -> Result<(), PciTransportError> {
         if !matches!(width, 1 | 2 | 4 | 8) {
             return Err(PciTransportError::UnsupportedAccess);
         }
-        let end = offset.checked_add(width as u64).ok_or(PciTransportError::InvalidValue)?;
+        let end = offset
+            .checked_add(width as u64)
+            .ok_or(PciTransportError::InvalidValue)?;
         if end > self.device_config.len() as u64 {
             return Err(PciTransportError::InvalidValue);
         }
@@ -686,12 +755,16 @@ impl VirtioPciTransport {
     }
 
     pub fn queue_notify_address(&self, queue_index: u16) -> Result<u64, PciTransportError> {
-        let capability = self.capability(VIRTIO_PCI_CAP_NOTIFY_CFG).ok_or(PciTransportError::InvalidCapability)?;
+        let capability = self
+            .capability(VIRTIO_PCI_CAP_NOTIFY_CFG)
+            .ok_or(PciTransportError::InvalidCapability)?;
         let queue = self.queue_state(queue_index)?;
         let offset = u64::from(queue.notify_off)
             .checked_mul(u64::from(self.notify_off_multiplier))
             .ok_or(PciTransportError::InvalidValue)?;
-        u64::from(capability.offset).checked_add(offset).ok_or(PciTransportError::InvalidValue)
+        u64::from(capability.offset)
+            .checked_add(offset)
+            .ok_or(PciTransportError::InvalidValue)
     }
 }
 
@@ -714,7 +787,13 @@ mod tests {
 
     #[test]
     fn capability_round_trip_includes_id() {
-        let capability = VirtioPciCapability::new_with_id(VIRTIO_PCI_CAP_SHARED_MEMORY_CFG, 2, 7, 0x1000, 0x2000);
+        let capability = VirtioPciCapability::new_with_id(
+            VIRTIO_PCI_CAP_SHARED_MEMORY_CFG,
+            2,
+            7,
+            0x1000,
+            0x2000,
+        );
         let decoded = VirtioPciCapability::decode_le(&capability.encode_le()).unwrap();
         assert_eq!(decoded, capability);
     }
@@ -748,31 +827,64 @@ mod tests {
         let mut transport = VirtioPciTransport::default();
         transport.add_bar(PciBar::new(0, 0x1000, 0x1000)).unwrap();
         let capability = VirtioPciCapability::new(VIRTIO_PCI_CAP_COMMON_CFG, 0, 0xF01, 0x100);
-        assert_eq!(transport.add_capability(capability), Err(PciTransportError::CapabilityOutOfBounds));
+        assert_eq!(
+            transport.add_capability(capability),
+            Err(PciTransportError::CapabilityOutOfBounds)
+        );
     }
 
     #[test]
     fn feature_select_reads_words() {
         let mut transport = VirtioPciTransport::default();
         let features = transport.device.device_features().bits();
-        assert_eq!(transport.read_common(CommonConfig::DEVICE_FEATURE, 4).unwrap(), features & 0xffff_ffff);
-        transport.write_common(CommonConfig::DEVICE_FEATURE_SELECT, 4, 1).unwrap();
-        assert_eq!(transport.read_common(CommonConfig::DEVICE_FEATURE, 4).unwrap(), features >> 32);
+        assert_eq!(
+            transport
+                .read_common(CommonConfig::DEVICE_FEATURE, 4)
+                .unwrap(),
+            features & 0xffff_ffff
+        );
+        transport
+            .write_common(CommonConfig::DEVICE_FEATURE_SELECT, 4, 1)
+            .unwrap();
+        assert_eq!(
+            transport
+                .read_common(CommonConfig::DEVICE_FEATURE, 4)
+                .unwrap(),
+            features >> 32
+        );
     }
 
     #[test]
     fn driver_feature_negotiation_works() {
         let mut transport = VirtioPciTransport::default();
-        let features = transport.read_common(CommonConfig::DEVICE_FEATURE, 4).unwrap();
-        transport.write_common(CommonConfig::DRIVER_FEATURE, 4, features).unwrap();
-        assert_eq!(transport.device.driver_features(), GpuFeatures::from_bits_truncate(features));
+        let features = transport
+            .read_common(CommonConfig::DEVICE_FEATURE, 4)
+            .unwrap();
+        transport
+            .write_common(CommonConfig::DRIVER_FEATURE, 4, features)
+            .unwrap();
+        assert_eq!(
+            transport.device.driver_features(),
+            GpuFeatures::from_bits_truncate(features)
+        );
     }
 
     #[test]
     fn status_write_works() {
         let mut transport = VirtioPciTransport::default();
-        transport.write_common(CommonConfig::DEVICE_STATUS, 1, DeviceStatus::ACKNOWLEDGE.bits() as u64).unwrap();
-        assert!(transport.device.status().contains(DeviceStatus::ACKNOWLEDGE));
+        transport
+            .write_common(
+                CommonConfig::DEVICE_STATUS,
+                1,
+                DeviceStatus::ACKNOWLEDGE.bits() as u64,
+            )
+            .unwrap();
+        assert!(
+            transport
+                .device
+                .status()
+                .contains(DeviceStatus::ACKNOWLEDGE)
+        );
     }
 
     #[test]
@@ -780,7 +892,12 @@ mod tests {
         let mut transport = VirtioPciTransport::default();
         transport.select_queue(0).unwrap();
         assert_eq!(transport.selected_queue(), Some(0));
-        assert_eq!(transport.read_common(CommonConfig::QUEUE_SELECT, 2).unwrap(), 0);
+        assert_eq!(
+            transport
+                .read_common(CommonConfig::QUEUE_SELECT, 2)
+                .unwrap(),
+            0
+        );
     }
 
     #[test]
@@ -801,19 +918,47 @@ mod tests {
         let mut transport = VirtioPciTransport::default();
         transport.initialize_default_capabilities().unwrap();
         transport.write_common(CommonConfig::SHM_SEL, 4, 1).unwrap();
-        assert_eq!(transport.read_common(CommonConfig::SHM_LEN_LOW, 4).unwrap(), 0x0400_0000);
-        assert_eq!(transport.read_common(CommonConfig::SHM_LEN_HIGH, 4).unwrap(), 0);
-        assert_eq!(transport.read_common(CommonConfig::SHM_BASE_LOW, 4).unwrap(), 0x2000_0000);
-        assert_eq!(transport.read_common(CommonConfig::SHM_BASE_HIGH, 4).unwrap(), 0);
+        assert_eq!(
+            transport.read_common(CommonConfig::SHM_LEN_LOW, 4).unwrap(),
+            0x0400_0000
+        );
+        assert_eq!(
+            transport
+                .read_common(CommonConfig::SHM_LEN_HIGH, 4)
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            transport
+                .read_common(CommonConfig::SHM_BASE_LOW, 4)
+                .unwrap(),
+            0x2000_0000
+        );
+        assert_eq!(
+            transport
+                .read_common(CommonConfig::SHM_BASE_HIGH, 4)
+                .unwrap(),
+            0
+        );
     }
 
     #[test]
     fn invalid_shm_id_returns_minus_one_registers() {
         let mut transport = VirtioPciTransport::default();
         transport.initialize_default_capabilities().unwrap();
-        transport.write_common(CommonConfig::SHM_SEL, 4, 999).unwrap();
-        assert_eq!(transport.read_common(CommonConfig::SHM_LEN_LOW, 4).unwrap(), u32::MAX as u64);
-        assert_eq!(transport.read_common(CommonConfig::SHM_BASE_LOW, 4).unwrap(), u32::MAX as u64);
+        transport
+            .write_common(CommonConfig::SHM_SEL, 4, 999)
+            .unwrap();
+        assert_eq!(
+            transport.read_common(CommonConfig::SHM_LEN_LOW, 4).unwrap(),
+            u32::MAX as u64
+        );
+        assert_eq!(
+            transport
+                .read_common(CommonConfig::SHM_BASE_LOW, 4)
+                .unwrap(),
+            u32::MAX as u64
+        );
     }
 
     #[test]
@@ -822,7 +967,10 @@ mod tests {
         transport.initialize_default_capabilities().unwrap();
         let bytes = transport.shared_memory_region_bytes_mut(1).unwrap();
         bytes[..4].copy_from_slice(&[1, 2, 3, 4]);
-        assert_eq!(&transport.shared_memory_region_bytes(1).unwrap()[..4], &[1, 2, 3, 4]);
+        assert_eq!(
+            &transport.shared_memory_region_bytes(1).unwrap()[..4],
+            &[1, 2, 3, 4]
+        );
     }
 
     #[test]
