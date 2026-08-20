@@ -172,7 +172,8 @@ fn main() {
     // The device feature bitmap also carries standard VirtIO transport
     // features. They are negotiated by the same 64-bit mechanism and are
     // therefore visible through DEVICE_FEATURE/DRIVER_FEATURE words.
-    let old_features = "                | GpuFeatures::BLOB_ALIGNMENT,\n\n            driver_features";
+    let old_features =
+        "                | GpuFeatures::BLOB_ALIGNMENT,\n\n            driver_features";
     let new_features = "                | GpuFeatures::BLOB_ALIGNMENT\n                | GpuFeatures::VERSION_1\n                | GpuFeatures::RING_RESET,\n\n            driver_features";
     if !generated.contains(old_features) {
         panic!("device feature list changed; update build.rs patch");

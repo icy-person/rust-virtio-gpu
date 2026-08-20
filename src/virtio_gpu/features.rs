@@ -75,8 +75,10 @@ mod tests {
     #[test]
     fn feature_negotiation_is_intersection() {
         let offered = GpuFeatures::VIRGL | GpuFeatures::RESOURCE_BLOB | GpuFeatures::VERSION_1;
-        let requested =
-            GpuFeatures::VIRGL | GpuFeatures::EDID | GpuFeatures::RESOURCE_BLOB | GpuFeatures::VERSION_1;
+        let requested = GpuFeatures::VIRGL
+            | GpuFeatures::EDID
+            | GpuFeatures::RESOURCE_BLOB
+            | GpuFeatures::VERSION_1;
         assert_eq!(
             requested.supported_subset(offered),
             GpuFeatures::VIRGL | GpuFeatures::RESOURCE_BLOB | GpuFeatures::VERSION_1
