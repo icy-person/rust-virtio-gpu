@@ -65,8 +65,8 @@ impl TransferRequest {
         if request.len() < 72 {
             return Err(VenusDispatchError::InvalidRequest);
         }
-        let header = CtrlHeader::decode_le(&request[..24])
-            .ok_or(VenusDispatchError::InvalidRequest)?;
+        let header =
+            CtrlHeader::decode_le(&request[..24]).ok_or(VenusDispatchError::InvalidRequest)?;
         if header.typ != expected_type {
             return Err(VenusDispatchError::InvalidRequest);
         }
@@ -233,9 +233,7 @@ impl VenusRuntime {
         }
         let mut entries = Vec::with_capacity(count);
         for chunk in request[start..bytes].chunks_exact(MemEntry::SIZE) {
-            entries.push(
-                MemEntry::decode_le(chunk).ok_or(VenusDispatchError::InvalidRequest)?,
-            );
+            entries.push(MemEntry::decode_le(chunk).ok_or(VenusDispatchError::InvalidRequest)?);
         }
         Ok(entries)
     }
@@ -289,7 +287,8 @@ impl VenusRuntime {
                     return Err(VenusStateError::UnsupportedCapability.into());
                 }
                 let name = &request[32..32 + nlen];
-                self.state.create_context(header.ctx_id, CAPSET_VENUS, name)?;
+                self.state
+                    .create_context(header.ctx_id, CAPSET_VENUS, name)?;
                 if let Err(err) = self.backend.create_context(
                     header.ctx_id,
                     context_init,
@@ -320,7 +319,8 @@ impl VenusRuntime {
             CMD_RESOURCE_CREATE_BLOB => {
                 let req = ResourceCreateBlob::decode_le(request)
                     .ok_or(VenusDispatchError::InvalidRequest)?;
-                let entries = Self::decode_entries(request, ResourceCreateBlob::SIZE, req.nr_entries)?;
+                let entries =
+                    Self::decode_entries(request, ResourceCreateBlob::SIZE, req.nr_entries)?;
                 let guest_size = entries.iter().try_fold(0u64, |acc, entry| {
                     acc.checked_add(entry.length as u64)
                         .ok_or(VenusDispatchError::InvalidRequest)
@@ -410,14 +410,10 @@ impl VenusRuntime {
                     nr_samples,
                     flags,
                 )?;
-                if let Err(err) = self.state.create_blob(
-                    resource_id,
-                    0,
-                    size,
-                    BLOB_MEM_HOST3D,
-                    0,
-                    0,
-                ) {
+                if let Err(err) =
+                    self.state
+                        .create_blob(resource_id, 0, size, BLOB_MEM_HOST3D, 0, 0)
+                {
                     self.backend.unref_resource(resource_id);
                     return Err(err.into());
                 }
@@ -446,8 +442,8 @@ impl VenusRuntime {
                 Ok(Self::ok(header))
             }
             CMD_RESOURCE_UNREF => {
-                let req = ResourceUnref::decode_le(request)
-                    .ok_or(VenusDispatchError::InvalidRequest)?;
+                let req =
+                    ResourceUnref::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
                 let resource = self
                     .state
                     .resources
@@ -543,8 +539,7 @@ impl VenusRuntime {
                 })
             }
             CMD_SUBMIT_3D => {
-                let req = Submit3D::decode_le(request)
-                    .ok_or(VenusDispatchError::InvalidRequest)?;
+                let req = Submit3D::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
                 let fence_bytes = (req.num_in_fences as usize)
                     .checked_mul(8)
                     .ok_or(VenusDispatchError::InvalidRequest)?;
