@@ -1,8 +1,8 @@
-use crate::virtio_gpu::transport::pci::{
-    VirtioPciNotifyCapability, VirtioPciTransport, VIRTIO_PCI_CAP_NOTIFY_CFG,
-    PCI_DEVICE_ID_GPU, PCI_VENDOR_ID_VIRTIO,
-};
 use crate::virtio_gpu::transport::PciConfigSpace;
+use crate::virtio_gpu::transport::pci::{
+    PCI_DEVICE_ID_GPU, PCI_VENDOR_ID_VIRTIO, VIRTIO_PCI_CAP_NOTIFY_CFG, VirtioPciNotifyCapability,
+    VirtioPciTransport,
+};
 use crate::virtio_gpu::transport::pci_config_space::VirtioPciCfgCapability;
 
 /// Build a conventional 4 KiB PCI configuration-space image for the current
@@ -61,8 +61,7 @@ impl VirtioPciTransport {
 mod tests {
     use super::*;
     use crate::virtio_gpu::transport::pci::{
-        VIRTIO_PCI_CAP_COMMON_CFG, VIRTIO_PCI_CAP_PCI_CFG,
-        VIRTIO_PCI_CAP_SHARED_MEMORY_CFG,
+        VIRTIO_PCI_CAP_COMMON_CFG, VIRTIO_PCI_CAP_PCI_CFG, VIRTIO_PCI_CAP_SHARED_MEMORY_CFG,
     };
 
     #[test]
