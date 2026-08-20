@@ -31,7 +31,7 @@ impl VenusRuntime {
     }
 
     pub fn detach_backing(&mut self, resource_id: u32) {
-        self.inner.detach_backing(resource_id);
+        self.inner.backend.detach_backing(resource_id);
     }
 
     fn error_response(request: &CtrlHeader, error: &VenusRuntimeError) -> VenusResponse {
@@ -107,7 +107,8 @@ impl VenusRuntime {
                     .try_into()
                     .map_err(|_| VenusDispatchError::InvalidRequest)?,
             );
-            if let Some(&internal_id) = self.guest_to_internal.get(&(header.ctx_id, ring, guest_id))
+            if let Some(&internal_id) =
+                self.guest_to_internal.get(&(header.ctx_id, ring, guest_id))
             {
                 translated[offset..offset + 8].copy_from_slice(&internal_id.to_le_bytes());
             }
