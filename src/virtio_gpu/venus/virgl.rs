@@ -384,6 +384,10 @@ impl VirglVenusBackend {
         in_fences: &[u64],
     ) -> Result<(), virglrenderer::VirglError> {
         let local_in_fences = self.translate_input_fences(ctx_id, in_fences);
+        let local_in_fences = local_in_fences
+            .into_iter()
+            .map(u64::from)
+            .collect::<Vec<_>>();
         self.renderer
             .submit_cmd(ctx_id, commands, &local_in_fences)?;
         if flags & FLAG_FENCE != 0 {
