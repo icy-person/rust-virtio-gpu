@@ -63,14 +63,10 @@ if [[ -z "$INIT_ENV" ]]; then
 fi
 
 if [[ -n "$INIT_ENV" ]]; then
-    export VN_DEBUG=vtest
-    export VTEST_SOCKET_NAME="$GUEST_SOCKET"
-    export VK_DRIVER_FILES="$ICD"
     for kv in \
         "VN_DEBUG vtest" \
         "VTEST_SOCKET_NAME $GUEST_SOCKET" \
         "VK_DRIVER_FILES $ICD" \
-        "LIBGL_ALWAYS_SOFTWARE 1" \
         "GALLIUM_DRIVER virpipe" \
         "LIBVA_DRIVER_NAME virtio_gpu"; do
         name=${kv%% *}
