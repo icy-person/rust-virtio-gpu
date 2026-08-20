@@ -11,7 +11,7 @@ impl VirtioGpuDevice {
 
         #[cfg(feature = "virglrenderer-backend")]
         if let Some(runtime) = self.venus.as_mut() {
-            runtime.backend.detach_backing(resource_id);
+            runtime.detach_backing(resource_id);
         }
 
         Ok(())
