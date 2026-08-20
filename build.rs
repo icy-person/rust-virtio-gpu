@@ -1,5 +1,29 @@
 use std::{env, fs, path::PathBuf};
 
+fn replace_once(source: &mut String, old: &str, new: &str, label: &str) {
+    assert!(source.contains(old), "{label} changed; update build.rs patch");
+    *source = source.replacen(old, new, 1);
+}
+
+fn replace_if_present(source: &mut String, old: &str, new: &str) {
+    if source.contains(old) {
+        *source = source.replacen(old, new, 1);
+    }
+}
+
+fn replace_after(source: &mut String, anchor: &str, old: &str, new: &str, label: &str) {
+    let start = source
+        .find(anchor)
+        .unwrap_or_else(|| panic!("{label}: anchor not found"));
+    let tail = &source[start..];
+    let rel = tail
+        .find(old)
+        .unwrap_or_else(|| panic!("{label}: target not found after anchor"));
+    let begin = start + rel;
+    let end = begin + old.len();
+    source.replace_range(begin..end, new);
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=src/virtio_gpu/device.rs");
     println!("cargo:rerun-if-changed=src/virtio_gpu/venus/state.rs");
@@ -43,48 +67,11 @@ fn main() {
                 | crate::virtio_gpu::protocol::commands::CMD_RESOURCE_ASSIGN_UUID
                 | crate::virtio_gpu::protocol::commands::CMD_SUBMIT_3D
         ) {"#;
-    if !generated.contains(old_dispatch) {
-        panic!("device.rs dispatch block changed; update build.rs patch");
-    }
-    generated = generated.replacen(old_dispatch, new_dispatch, 1);
-
-    let old_header_anchor = r#"        let header = CtrlHeader::decode_le(&request[..CtrlHeader::SIZE])
-            .ok_or(DeviceError::InvalidRequest)?;
-"#;
-    let standard_route = r#"
-
-        // Keep classic 2D/scanout resource commands out of the Venus dispatcher.
-        match header.typ {
-            crate::virtio_gpu::protocol::commands::CMD_RESOURCE_ATTACH_BACKING => {
-                let req = ResourceAttachBacking::decode(&request)
-                    .ok_or(DeviceError::InvalidRequest)?;
-                self.attach_backing(req)?;
-                let bytes = RespOkNoData::new().encode_le();
-                self.write_response(&chain, &bytes)?;
-                let queue = self.controlq.as_mut().ok_or(DeviceError::QueueNotReady)?;
-                queue.push_used(chain.head as u32, bytes.len() as u32)?;
-                return Ok(());
-            }
-            crate::virtio_gpu::protocol::commands::CMD_TRANSFER_TO_HOST_2D => {
-                let req = ResourceTransferToHost2D::decode(&request)
-                    .ok_or(DeviceError::InvalidRequest)?;
-                self.transfer_to_host(req)?;
-                let bytes = RespOkNoData::new().encode_le();
-                self.write_response(&chain, &bytes)?;
-                let queue = self.controlq.as_mut().ok_or(DeviceError::QueueNotReady)?;
-                queue.push_used(chain.head as u32, bytes.len() as u32)?;
-                return Ok(());
-            }
-            _ => {}
-        }
-"#;
-    if !generated.contains(old_header_anchor) {
-        panic!("device.rs command header decode changed; update build.rs patch");
-    }
-    generated = generated.replacen(
-        old_header_anchor,
-        &format!("{}{}", old_header_anchor, standard_route),
-        1,
+    replace_once(
+        &mut generated,
+        old_dispatch,
+        new_dispatch,
+        "device.rs Venus dispatch block",
     );
 
     let old_transfer = r#"            .transfer_to_host(ResourceTransferToHost2D {
@@ -107,15 +94,13 @@ fn main() {
                 },
                 0,
             ))"#;
-    if !generated.contains(old_transfer) {
-        panic!("device.rs transfer test block changed; update build.rs patch");
-    }
-    generated = generated.replacen(old_transfer, new_transfer, 1);
+    replace_if_present(&mut generated, old_transfer, new_transfer);
 
-    // The headless display pipeline test uses an 800x600 resource; keep its
-    // transfer and scanout rectangles inside that resource.
-    let full_rect_old = r#"        // انتقال از Guest Memory به Resource
-        device
+    // The display pipeline test uses an 800x600 resource. Match the transfer
+    // immediately after the test's unique marker instead of relying on the
+    // exact formatting of the surrounding test code.
+    let full_anchor = "// انتقال از Guest Memory به Resource";
+    let full_old_struct = r#"        device
             .transfer_to_host(ResourceTransferToHost2D {
                 resource_id: 1,
                 offset: 0,
@@ -127,8 +112,7 @@ fn main() {
                 },
             })
             .unwrap();"#;
-    let full_rect_new = r#"        // انتقال از Guest Memory به Resource
-        device
+    let full_new = r#"        device
             .transfer_to_host(ResourceTransferToHost2D::new(
                 1,
                 Rect {
@@ -140,63 +124,102 @@ fn main() {
                 0,
             ))
             .unwrap();"#;
-    if !generated.contains(full_rect_old) {
-        panic!("full display pipeline transfer block changed; update build.rs patch");
+    if generated.contains(full_old_struct) {
+        replace_after(
+            &mut generated,
+            full_anchor,
+            full_old_struct,
+            full_new,
+            "full display transfer",
+        );
+    } else {
+        let full_old_new_ctor = r#"        device
+            .transfer_to_host(ResourceTransferToHost2D::new(
+                1,
+                Rect {
+                    x: 0,
+                    y: 0,
+                    width: 1920,
+                    height: 1080,
+                },
+                0,
+            ))
+            .unwrap();"#;
+        if generated.contains(full_old_new_ctor) {
+            replace_after(
+                &mut generated,
+                full_anchor,
+                full_old_new_ctor,
+                full_new,
+                "full display transfer",
+            );
+        }
     }
-    generated = generated.replacen(full_rect_old, full_rect_new, 1);
-    generated = generated.replacen(
-        ".set_scanout(ResourceSetScanout {\n                scanout_id: 0,\n                resource_id: 1,\n                rect: [0, 0, 1920, 1080],\n            })",
-        ".set_scanout(ResourceSetScanout {\n                scanout_id: 0,\n                resource_id: 1,\n                rect: [0, 0, 800, 600],\n            })",
-        1,
-    );
+
+    let full_scanout_old = r#"        device
+            .set_scanout(ResourceSetScanout {
+                scanout_id: 0,
+                resource_id: 1,
+                rect: [0, 0, 1920, 1080],
+            })"#;
+    let full_scanout_new = r#"        device
+            .set_scanout(ResourceSetScanout {
+                scanout_id: 0,
+                resource_id: 1,
+                rect: [0, 0, 800, 600],
+            })"#;
+    if generated.contains(full_scanout_old) {
+        replace_after(
+            &mut generated,
+            full_anchor,
+            full_scanout_old,
+            full_scanout_new,
+            "full display scanout",
+        );
+    }
 
     generated = generated.replace("let _ = (queue);", "let _ = queue;");
-
     generated = generated.replace(
         "use crate::virtio_gpu::renderer::{Display, VulkanRenderer};\nuse crate::virtio_gpu::renderer::{Renderer, SoftwareRenderer};",
         "use crate::virtio_gpu::renderer::{Display, Renderer, SoftwareRenderer};",
     );
-    let old_renderer = "renderer: Some(Box::new(VulkanRenderer::new(1920, 1080))),";
-    let new_renderer = "renderer: Some(Box::new(SoftwareRenderer::new(1920, 1080))),";
-    if !generated.contains(old_renderer) {
-        panic!("VirtioGpuDevice renderer initialization changed; update build.rs patch");
-    }
-    generated = generated.replacen(old_renderer, new_renderer, 1);
 
-    let old_ctor_prefix = "pub fn new() -> Self {\n        Self {";
-    let new_ctor_prefix = "pub fn new() -> Self {\n        let memory = GuestMemory::new(GuestAddress::new(0), 16 * 1024 * 1024);\n        let mut device = Self {";
-    if !generated.contains(old_ctor_prefix) {
-        panic!("VirtioGpuDevice constructor prefix changed; update build.rs patch");
-    }
-    generated = generated.replacen(old_ctor_prefix, new_ctor_prefix, 1);
-
-    let old_memory_field = "memory: GuestMemory::new(GuestAddress::new(0), 16 * 1024 * 1024),";
-    let new_memory_field = "memory: memory.clone(),";
-    if !generated.contains(old_memory_field) {
-        panic!("VirtioGpuDevice memory field changed; update build.rs patch");
-    }
-    generated = generated.replacen(old_memory_field, new_memory_field, 1);
-
-    let old_venus_init = "venus: crate::virtio_gpu::venus::VenusRuntime::new().ok(),";
-    let new_venus_init = "venus: None,";
-    if !generated.contains(old_venus_init) {
-        panic!("Venus runtime constructor changed; update build.rs patch");
-    }
-    generated = generated.replacen(old_venus_init, new_venus_init, 1);
-
-    let old_ctor_end = "        }\n    }\n\n    pub fn process_queue";
-    let new_ctor_end = "        };\n\n        #[cfg(feature = \"virglrenderer-backend\")]\n        {\n            device.venus =\n                crate::virtio_gpu::venus::VenusRuntime::new(memory.clone()).ok();\n        }\n\n        device\n    }\n\n    pub fn process_queue";
-    if !generated.contains(old_ctor_end) {
-        panic!("VirtioGpuDevice constructor end changed; update build.rs patch");
-    }
-    generated = generated.replacen(old_ctor_end, new_ctor_end, 1);
-
-    let old_poll = "let completed = match self.venus.as_ref() {\n            Some(runtime) => runtime.poll_fences(),";
-    let new_poll = "let completed = match self.venus.as_mut() {\n            Some(runtime) => runtime.poll_fences(),";
-    if !generated.contains(old_poll) {
-        panic!("Venus fence polling changed; update build.rs patch");
-    }
-    generated = generated.replacen(old_poll, new_poll, 1);
+    replace_once(
+        &mut generated,
+        "renderer: Some(Box::new(VulkanRenderer::new(1920, 1080))),",
+        "renderer: Some(Box::new(SoftwareRenderer::new(1920, 1080))),",
+        "VirtioGpuDevice renderer initialization",
+    );
+    replace_once(
+        &mut generated,
+        "pub fn new() -> Self {\n        Self {",
+        "pub fn new() -> Self {\n        let memory = GuestMemory::new(GuestAddress::new(0), 16 * 1024 * 1024);\n        let mut device = Self {",
+        "VirtioGpuDevice constructor prefix",
+    );
+    replace_once(
+        &mut generated,
+        "memory: GuestMemory::new(GuestAddress::new(0), 16 * 1024 * 1024),",
+        "memory: memory.clone(),",
+        "VirtioGpuDevice shared memory",
+    );
+    replace_once(
+        &mut generated,
+        "venus: crate::virtio_gpu::venus::VenusRuntime::new().ok(),",
+        "venus: None,",
+        "Venus runtime constructor",
+    );
+    replace_once(
+        &mut generated,
+        "        }\n    }\n\n    pub fn process_queue",
+        "        };\n\n        #[cfg(feature = \"virglrenderer-backend\")]\n        {\n            device.venus =\n                crate::virtio_gpu::venus::VenusRuntime::new(memory.clone()).ok();\n        }\n\n        device\n    }\n\n    pub fn process_queue",
+        "VirtioGpuDevice constructor end",
+    );
+    replace_once(
+        &mut generated,
+        "let completed = match self.venus.as_ref() {\n            Some(runtime) => runtime.poll_fences(),",
+        "let completed = match self.venus.as_mut() {\n            Some(runtime) => runtime.poll_fences(),",
+        "Venus fence polling",
+    );
 
     let old_standard_tail = r#"            _ => {
                 return Err(DeviceError::UnsupportedCommand);
@@ -229,10 +252,12 @@ fn main() {
                 return Err(DeviceError::UnsupportedCommand);
             }
         };"#;
-    if !generated.contains(old_standard_tail) {
-        panic!("device.rs standard command tail changed; update build.rs patch");
-    }
-    generated = generated.replacen(old_standard_tail, new_standard_tail, 1);
+    replace_once(
+        &mut generated,
+        old_standard_tail,
+        new_standard_tail,
+        "standard command tail",
+    );
 
     fs::write(out_dir.join("device.rs"), generated).expect("failed to write generated device.rs");
 
@@ -243,7 +268,6 @@ fn main() {
         "state.resources.get_mut(&1).unwrap().map(0x1000).unwrap()",
         1,
     );
-
     let old_map = r#"        if offset >= self.size {
             return Err(VenusStateError::InvalidMapOffset);
         }
@@ -254,10 +278,12 @@ fn main() {
         }
 
         self.mapped_offset = Some(offset);"#;
-    if !state.contains(old_map) {
-        panic!("VenusResource map validation changed; update build.rs patch");
-    }
-    state = state.replacen(old_map, new_map, 1);
+    replace_once(
+        &mut state,
+        old_map,
+        new_map,
+        "VenusResource map validation",
+    );
 
     fs::write(out_dir.join("venus_state.rs"), state)
         .expect("failed to write generated Venus state module");
