@@ -1,8 +1,9 @@
 use crate::virtio_gpu::device::{DeviceError, VirtioGpuDevice};
-use crate::virtio_gpu::display::{Display, scanout::Scanout};
-use crate::virtio_gpu::protocol::commands::{MAX_SCANOUTS, RESP_OK_EDID};
+use crate::virtio_gpu::protocol::commands::RESP_OK_EDID;
 use crate::virtio_gpu::protocol::requests::standard::{GetEdid, SetScanoutBlob};
-use crate::virtio_gpu::protocol::responses::RespEdid;
+use crate::virtio_gpu::protocol::responses::{RespEdid, MAX_SCANOUTS};
+use crate::virtio_gpu::renderer::Display;
+use crate::virtio_gpu::display::scanout::Scanout;
 
 impl VirtioGpuDevice {
     pub(crate) fn handle_detach_backing(&mut self, resource_id: u32) -> Result<(), DeviceError> {
@@ -35,15 +36,18 @@ impl VirtioGpuDevice {
         edid[17] = 1;
         edid[18] = 1;
         edid[19] = 4;
-        edid[21] = ((resource.width as f32 / 96.0).max(1.0)).round() as u8;
-        edid[22] = ((resource.height as f32 / 96.0).max(1.0)).round() as u8;
+        edid[21] = 52;
+        edid[22] = 29;
         edid[23] = 0x78;
         edid[24] = 0x0a;
         edid[25] = 0xcf;
         edid[26] = 0x74;
         edid[27] = 0xa3;
-        edid[56..58].copy_from_slice(&resource.width.min(4095).to_le_bytes()[..2]);
-        edid[58..60].copy_from_slice(&resource.height.min(4095).to_le_bytes()[..2]);
+
+        let width_mm = ((resource.width as u64 * 254) / 10 / 96).clamp(1, 4095) as u16;
+        let height_mm = ((resource.height as u64 * 254) / 10 / 96).clamp(1, 4095) as u16;
+        edid[21] = width_mm.clamp(1, 255) as u8;
+        edid[22] = height_mm.clamp(1, 255) as u8;
         edid[126] = 0;
         edid[127] = 0u8.wrapping_sub(
             edid[..127]
