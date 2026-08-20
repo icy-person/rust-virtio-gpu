@@ -107,8 +107,7 @@ impl VenusRuntime {
                     .try_into()
                     .map_err(|_| VenusDispatchError::InvalidRequest)?,
             );
-            if let Some(&internal_id) = self.guest_to_internal.get(&(header.ctx_id, ring, guest_id))
-            {
+            if let Some(&internal_id) = self.guest_to_internal.get(&(header.ctx_id, ring, guest_id)) {
                 translated[offset..offset + 8].copy_from_slice(&internal_id.to_le_bytes());
             }
         }
