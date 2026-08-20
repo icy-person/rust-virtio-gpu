@@ -36,6 +36,30 @@ Waydroid is a container, so this path is deliberately different from the PCI tra
 
 The host must have a Mesa/virglrenderer build that exposes `virgl_test_server --venus`, and the Vulkan stack must support the external-memory and DRM-modifier capabilities required by Venus. A discrete or integrated GPU should be selected with `--rendernode` when the machine has more than one render device.
 
+Mesa's Venus documentation currently lists Linux hosts needing Vulkan 1.1 plus `VK_KHR_external_memory_fd`; Android hosts additionally need the dma-buf, DRM-format-modifier, and queue-family-foreign capabilities from the host driver. citeturn742256search0
+
+### Build virglrenderer with Venus
+
+The official Venus documentation uses a Venus-enabled virglrenderer build. This repository includes a helper for it:
+
+```bash
+./tools/build-virglrenderer-venus.sh
+```
+
+Or manually:
+
+```bash
+git clone https://gitlab.freedesktop.org/virgl/virglrenderer.git
+cd virglrenderer
+meson setup out -Dvenus=true --buildtype=release
+meson compile -C out
+./out/vtest/virgl_test_server --venus --no-fork --multi-clients --use-egl-surfaceless
+```
+
+For a non-default host driver, set `VK_DRIVER_FILES` when starting the server. Mesa explicitly recommends this when the host driver is built outside the system Vulkan search path. citeturn742256search0
+
+## Host Vulkan selection
+
 For a host Vulkan ICD that is not the default loader choice:
 
 ```bash
@@ -66,11 +90,7 @@ The helper executable is:
 target/release/waydroid-venus
 ```
 
-The virglrenderer/Venus backend is enabled with:
-
-```bash
-cargo build --release --all-features
-```
+The `virglrenderer-backend` feature is enabled by `--all-features`.
 
 ## Configure Waydroid
 
@@ -81,11 +101,13 @@ sudo waydroid session stop || true
 sudo waydroid container stop || true
 ```
 
-Apply the socket bind:
+Apply the socket bind and Waydroid vendor properties:
 
 ```bash
 sudo target/release/waydroid-venus --setup
 ```
+
+Waydroid's current config generation includes `/var/lib/waydroid/lxc/waydroid/config_nodes` and `config_session`; current logs also show `config_session` being moved into the per-container LXC directory when the session starts. `waydroid.prop` is bound into the vendor image during startup. citeturn594115search0turn594115search5
 
 The helper adds this idempotent LXC entry to `config_session`:
 
@@ -105,6 +127,8 @@ VTEST_SOCKET_NAME=/run/xdg/.virgl_test
 VK_DRIVER_FILES=/vendor/etc/vulkan/icd.d/virtio_icd.x86_64.json
 ```
 
+`VTEST_SOCKET_NAME` is also used by Android-side applications that run Mesa/vtest through a Unix socket, so this is the intended style for an Android/container deployment. citeturn870093search1
+
 The helper can update an `init.environ.rc` overlay passed explicitly with `--init-env`. It does not overwrite an Android system image automatically.
 
 The generated environment also includes the legacy GL/VA-API path used by virpipe/virtio-gpu:
@@ -117,7 +141,7 @@ LIBVA_DRIVER_NAME=virtio_gpu
 
 ## Android properties
 
-For a Mesa virtio/GBM stack, apply these properties to the Waydroid overlay/prop file you use for your image:
+For a Mesa virtio/GBM stack, apply these properties to the Waydroid vendor property file:
 
 ```text
 ro.hardware.vulkan=virtio
@@ -125,18 +149,18 @@ ro.hardware.egl=mesa
 ro.hardware.gralloc=gbm
 ```
 
-The Rust helper can apply them to files supplied through `--prop`.
+The helper updates `/var/lib/waydroid/waydroid.prop` by default; you can override it with `WAYDROID_VENUS_PROP`.
 
 ## Start sequence
 
 A reliable startup order is:
 
 1. Stop Waydroid.
-2. Configure the LXC socket bind.
+2. Configure the LXC socket bind and vendor properties.
 3. Start `virgl_test_server` with Venus enabled.
-4. Confirm `/tmp/.virgl_test` exists.
+4. Confirm `/tmp/.virgl_test` exists and is a Unix socket.
 5. Start the Waydroid session.
-6. Verify the Android Mesa virtio ICD is present and `VTEST_SOCKET_NAME` is visible in the Android process environment.
+6. Verify the Android Mesa virtio ICD is present and `VN_DEBUG`/`VTEST_SOCKET_NAME` are inherited by Android processes.
 
 The helper can perform steps 2-4:
 
@@ -145,6 +169,8 @@ sudo target/release/waydroid-venus --setup --start
 ```
 
 Leave it running and start Waydroid from another terminal.
+
+An optional systemd user unit is included at `tools/waydroid-venus.service`.
 
 ## Performance settings for games
 
@@ -163,6 +189,12 @@ For stable gaming behavior, keep shader cache enabled and do not enable `VN_DEBU
 
 ## Validation
 
+The repository includes a health check:
+
+```bash
+./tools/waydroid-venus-check.sh
+```
+
 Host:
 
 ```bash
@@ -175,6 +207,8 @@ Waydroid:
 
 ```bash
 waydroid shell getprop ro.hardware.vulkan
+waydroid shell getprop ro.hardware.egl
+waydroid shell getprop ro.hardware.gralloc
 waydroid shell ls -l /vendor/etc/vulkan/icd.d/
 waydroid shell sh -c 'cat /proc/1/environ | tr "\\0" "\\n" | grep -E "VN_DEBUG|VTEST_SOCKET_NAME|VK_DRIVER_FILES"'
 ```
