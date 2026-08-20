@@ -3,8 +3,7 @@
 use std::sync::{Arc, Mutex};
 
 use virglrenderer::{
-    FenceHandler, ResourceCreateBlob as VirglResourceCreateBlob, VirglRenderer,
-    VirglRendererFlags,
+    FenceHandler, ResourceCreateBlob as VirglResourceCreateBlob, VirglRenderer, VirglRendererFlags,
 };
 
 use crate::virtio_gpu::protocol::commands::CAPSET_VENUS;
