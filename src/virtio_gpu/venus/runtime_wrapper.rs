@@ -31,7 +31,7 @@ impl VenusRuntime {
     }
 
     pub fn detach_backing(&mut self, resource_id: u32) {
-        self.inner.detach_backing(resource_id);
+        self.inner.backend.detach_backing(resource_id);
     }
 
     fn error_response(request: &CtrlHeader, error: &VenusRuntimeError) -> VenusResponse {
@@ -81,7 +81,11 @@ impl VenusRuntime {
             };
         }
         let submit = Submit3D::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
-        let ring = if header.flags & FLAG_INFO_RING_IDX != 0 { header.ring_idx } else { 0 };
+        let ring = if header.flags & FLAG_INFO_RING_IDX != 0 {
+            header.ring_idx
+        } else {
+            0
+        };
         let fence_bytes = (submit.num_in_fences as usize)
             .checked_mul(8)
             .ok_or(VenusDispatchError::InvalidRequest)?;
@@ -103,7 +107,8 @@ impl VenusRuntime {
                     .try_into()
                     .map_err(|_| VenusDispatchError::InvalidRequest)?,
             );
-            if let Some(&internal_id) = self.guest_to_internal.get(&(header.ctx_id, ring, guest_id)) {
+            if let Some(&internal_id) = self.guest_to_internal.get(&(header.ctx_id, ring, guest_id))
+            {
                 translated[offset..offset + 8].copy_from_slice(&internal_id.to_le_bytes());
             }
         }
@@ -128,14 +133,14 @@ impl VenusRuntime {
             .poll_fences()
             .into_iter()
             .map(|mut fence| {
-                if let Some(&guest_id) = self
-                    .internal_to_guest
-                    .get(&(fence.ctx_id, fence.ring_idx, fence.fence_id))
+                if let Some(&guest_id) =
+                    self.internal_to_guest
+                        .get(&(fence.ctx_id, fence.ring_idx, fence.fence_id))
                 {
                     fence.fence_id = guest_id;
-                    if let Some(internal_id) = self
-                        .guest_to_internal
-                        .remove(&(fence.ctx_id, fence.ring_idx, guest_id))
+                    if let Some(internal_id) =
+                        self.guest_to_internal
+                            .remove(&(fence.ctx_id, fence.ring_idx, guest_id))
                     {
                         self.internal_to_guest
                             .remove(&(fence.ctx_id, fence.ring_idx, internal_id));
