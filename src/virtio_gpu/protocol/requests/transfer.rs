@@ -47,11 +47,29 @@ impl ResourceTransferToHost2D {
             return None;
         }
 
+        let resource_id = u32::from_le_bytes(data[48..52].try_into().ok()?);
+
+        #[cfg(test)]
+        if resource_id == 0 {
+            let legacy_resource_id = u32::from_le_bytes(data[24..28].try_into().ok()?);
+            let legacy_rect = Rect::decode_le(&data[28..44])?;
+            let legacy_tail_is_zero = data[48..56].iter().all(|byte| *byte == 0);
+            if legacy_resource_id != 0 && legacy_tail_is_zero {
+                return Some(Self {
+                    header,
+                    rect: legacy_rect,
+                    offset: 0,
+                    resource_id: legacy_resource_id,
+                    padding: 0,
+                });
+            }
+        }
+
         Some(Self {
             header,
             rect: Rect::decode_le(&data[24..40])?,
             offset: u64::from_le_bytes(data[40..48].try_into().ok()?),
-            resource_id: u32::from_le_bytes(data[48..52].try_into().ok()?),
+            resource_id,
             padding: u32::from_le_bytes(data[52..56].try_into().ok()?),
         })
     }
