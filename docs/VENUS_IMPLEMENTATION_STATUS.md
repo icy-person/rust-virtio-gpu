@@ -21,3 +21,7 @@ The current branch implements the VirtIO-GPU wire structures and a host-side Ven
 6. Add end-to-end tests that exercise the VirtIO control queue against the renderer backend.
 
 The intended backend boundary is the Mesa `virglrenderer` Venus path. The repository must not claim Venus support merely because protocol structs and a state machine exist.
+
+## CI bootstrap
+
+The branch temporarily applies a source-compatible patch to the published `virglrenderer` 0.1.3 Rust wrapper for Ubuntu 24.04's older generated log-level bindings. This bootstrap step is intended to be removed once the backend uses a version/fork with matching upstream bindings.
