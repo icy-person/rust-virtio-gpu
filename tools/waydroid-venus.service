@@ -1,7 +1,6 @@
 [Unit]
 Description=Waydroid Mesa Venus vtest server
 After=graphical-session.target
-Before=waydroid-container.service
 
 [Service]
 Type=simple
