@@ -125,11 +125,27 @@ fn main() {
 
     let state_source = fs::read_to_string("src/virtio_gpu/venus/state.rs")
         .expect("failed to read src/virtio_gpu/venus/state.rs");
-    let state = state_source.replacen(
+    let mut state = state_source.replacen(
         "state.resources.get(&1).unwrap().map(0x1000).unwrap()",
         "state.resources.get_mut(&1).unwrap().map(0x1000).unwrap()",
         1,
     );
+
+    let old_map = r#"        if offset >= self.size {
+            return Err(VenusStateError::InvalidMapOffset);
+        }
+
+        self.mapped_offset = Some(offset);"#;
+    let new_map = r#"        if offset % 4096 != 0 || offset.checked_add(self.size).is_none() {
+            return Err(VenusStateError::InvalidMapOffset);
+        }
+
+        self.mapped_offset = Some(offset);"#;
+    if !state.contains(old_map) {
+        panic!("VenusResource map validation changed; update build.rs patch");
+    }
+    state = state.replacen(old_map, new_map, 1);
+
     fs::write(out_dir.join("venus_state.rs"), state)
         .expect("failed to write generated Venus state module");
 }
