@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Configure a running Linux host for Mesa Venus in a Waydroid container.
-# This helper deliberately does not modify Android system files automatically;
-# use --init-env/--prop to point it at an overlay/custom image you control.
+# Configure the host-side Venus/vtest connection for Waydroid.
+# Run while Waydroid is stopped. Android system files are only changed when an
+# init.environ.rc overlay is found or explicitly supplied.
 
 ROOT=/var/lib/waydroid
 HOST_SOCKET=${WAYDROID_VENUS_SOCKET:-/tmp/.virgl_test}
 GUEST_SOCKET=${WAYDROID_VENUS_GUEST_SOCKET:-/run/xdg/.virgl_test}
 CONFIG=${WAYDROID_VENUS_CONFIG:-$ROOT/config_session}
+PROP=${WAYDROID_VENUS_PROP:-$ROOT/waydroid.prop}
+INIT_ENV=${WAYDROID_VENUS_INIT_ENV:-}
 SERVER=${VIRGL_TEST_SERVER:-virgl_test_server}
 ICD=${WAYDROID_VENUS_ICD:-/vendor/etc/vulkan/icd.d/virtio_icd.x86_64.json}
 RENDER_NODE=${WAYDROID_VENUS_RENDER_NODE:-}
@@ -30,27 +32,63 @@ if ! grep -Fqx "$ENTRY" "$CONFIG"; then
     printf '\n%s\n' "$ENTRY" >> "$CONFIG"
 fi
 
+# Waydroid binds this file to vendor/waydroid.prop during container startup.
+mkdir -p "$(dirname "$PROP")"
+touch "$PROP"
+set_prop() {
+    local key=$1 value=$2 tmp
+    tmp=$(mktemp)
+    awk -v key="$key" -v value="$value" '
+        index($0, key "=") == 1 { if (!seen) { print key "=" value; seen=1 } next }
+        { print }
+        END { if (!seen) print key "=" value }
+    ' "$PROP" > "$tmp"
+    cat "$tmp" > "$PROP"
+    rm -f "$tmp"
+}
+set_prop ro.hardware.vulkan virtio
+set_prop ro.hardware.egl mesa
+set_prop ro.hardware.gralloc gbm
+
+if [[ -z "$INIT_ENV" ]]; then
+    for candidate in \
+        "$ROOT/overlay/init.environ.rc" \
+        "$ROOT/overlay/system/etc/init.environ.rc" \
+        "$ROOT/rootfs/init.environ.rc"; do
+        if [[ -f "$candidate" ]]; then
+            INIT_ENV=$candidate
+            break
+        fi
+    done
+fi
+
+if [[ -n "$INIT_ENV" ]]; then
+    export VN_DEBUG=vtest
+    export VTEST_SOCKET_NAME="$GUEST_SOCKET"
+    export VK_DRIVER_FILES="$ICD"
+    for kv in \
+        "VN_DEBUG vtest" \
+        "VTEST_SOCKET_NAME $GUEST_SOCKET" \
+        "VK_DRIVER_FILES $ICD" \
+        "LIBGL_ALWAYS_SOFTWARE 1" \
+        "GALLIUM_DRIVER virpipe" \
+        "LIBVA_DRIVER_NAME virtio_gpu"; do
+        name=${kv%% *}
+        value=${kv#* }
+        grep -Fqx "    export $name $value" "$INIT_ENV" 2>/dev/null || printf '\n    export %s %s\n' "$name" "$value" >> "$INIT_ENV"
+    done
+    echo "Patched Android init environment: $INIT_ENV"
+else
+    echo "No init.environ.rc overlay found; pass WAYDROID_VENUS_INIT_ENV=/path/to/init.environ.rc to patch it."
+fi
+
 echo "Configured VirtIO/Venus socket bind: $HOST_SOCKET -> $GUEST_SOCKET"
-echo "Host Vulkan ICD expected inside Android: $ICD"
+echo "Android Vulkan ICD: $ICD"
 if [[ -n "$RENDER_NODE" ]]; then
     echo "Host render node: $RENDER_NODE"
 fi
 
 echo
-cat <<'EOF'
-Next steps:
-  1. Start the host Venus server with:
-       virgl_test_server --venus --no-fork --multi-clients --use-egl-surfaceless
-  2. Make sure /tmp/.virgl_test exists before starting the Waydroid session.
-  3. Export inside Android init:
-       VN_DEBUG=vtest
-       VTEST_SOCKET_NAME=/run/xdg/.virgl_test
-       VK_DRIVER_FILES=/vendor/etc/vulkan/icd.d/virtio_icd.x86_64.json
-       LIBGL_ALWAYS_SOFTWARE=1
-       GALLIUM_DRIVER=virpipe
-       LIBVA_DRIVER_NAME=virtio_gpu
-  4. Ensure Android exposes the Mesa virtio Vulkan ICD and gralloc/egl are set to
-       ro.hardware.vulkan=virtio
-       ro.hardware.egl=mesa
-       ro.hardware.gralloc=gbm
-EOF
+echo "Start the host Venus server before the Waydroid session:"
+echo "  virgl_test_server --venus --no-fork --multi-clients --use-egl-surfaceless"
+echo "Then start Waydroid: sudo waydroid session start"
