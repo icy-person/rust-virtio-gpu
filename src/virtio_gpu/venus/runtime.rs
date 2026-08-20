@@ -104,8 +104,8 @@ impl VenusRuntime {
 
         match header.typ {
             CMD_GET_CAPSET_INFO => {
-                let req = GetCapsetInfo::decode_le(request)
-                    .ok_or(VenusDispatchError::InvalidRequest)?;
+                let req =
+                    GetCapsetInfo::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
                 if req.capset_index != 0 {
                     return Err(VenusDispatchError::State(
                         super::VenusStateError::UnsupportedCapability,
@@ -115,7 +115,8 @@ impl VenusRuntime {
                 Ok(self.capset_info(header))
             }
             CMD_GET_CAPSET => {
-                let req = GetCapset::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
+                let req =
+                    GetCapset::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
                 if req.capset_id != CAPSET_VENUS || req.capset_version == 0 {
                     return Err(VenusDispatchError::State(
                         super::VenusStateError::UnsupportedCapability,
@@ -156,15 +157,19 @@ impl VenusRuntime {
             CMD_CTX_ATTACH_RESOURCE => {
                 let req = ContextAttachResource::decode_le(request)
                     .ok_or(VenusDispatchError::InvalidRequest)?;
-                self.state.attach_resource(req.header.ctx_id, req.resource_id)?;
-                self.backend.attach_resource(req.header.ctx_id, req.resource_id);
+                self.state
+                    .attach_resource(req.header.ctx_id, req.resource_id)?;
+                self.backend
+                    .attach_resource(req.header.ctx_id, req.resource_id);
                 Ok(Self::ok(header))
             }
             CMD_CTX_DETACH_RESOURCE => {
                 let req = ContextDetachResource::decode_le(request)
                     .ok_or(VenusDispatchError::InvalidRequest)?;
-                self.backend.detach_resource(req.header.ctx_id, req.resource_id);
-                self.state.detach_resource(req.header.ctx_id, req.resource_id)?;
+                self.backend
+                    .detach_resource(req.header.ctx_id, req.resource_id);
+                self.state
+                    .detach_resource(req.header.ctx_id, req.resource_id)?;
                 Ok(Self::ok(header))
             }
             CMD_RESOURCE_CREATE_BLOB => {
@@ -216,13 +221,9 @@ impl VenusRuntime {
             CMD_RESOURCE_MAP_BLOB => {
                 let req = ResourceMapBlob::decode_le(request)
                     .ok_or(VenusDispatchError::InvalidRequest)?;
-                let resource = self
-                    .state
-                    .resources
-                    .get_mut(&req.resource_id)
-                    .ok_or(VenusDispatchError::State(
-                        super::VenusStateError::InvalidResource,
-                    ))?;
+                let resource = self.state.resources.get_mut(&req.resource_id).ok_or(
+                    VenusDispatchError::State(super::VenusStateError::InvalidResource),
+                )?;
                 resource.map(req.offset)?;
                 let mut bytes = Vec::with_capacity(32);
                 bytes.extend_from_slice(
@@ -288,8 +289,7 @@ impl VenusRuntime {
                 })
             }
             CMD_SUBMIT_3D => {
-                let req =
-                    Submit3D::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
+                let req = Submit3D::decode_le(request).ok_or(VenusDispatchError::InvalidRequest)?;
                 let fence_bytes = (req.num_in_fences as usize)
                     .checked_mul(8)
                     .ok_or(VenusDispatchError::InvalidRequest)?;
